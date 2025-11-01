@@ -1,101 +1,76 @@
-from bing_image_downloader import bing_image_downloader
+from bing_image_downloader.bing import Bing
 import os
-import requests
-from PIL import Image
-from io import BytesIO
 
-def search_images_bing(query="person", max_images=15):
+def search_images_bing(query="person", max_images=10):
     """
-    Search for images using Bing Image Search
-    Returns: list of image URLs with metadata
+    Search for images using Bing Image Search based on user's search terms
+    This finds images of the SPECIFIC PERSON the user searches for
     
-    NOTE: For a real product, you'd want to use the Bing Search API
-    This is a quick workaround for hackathon
+    Args:
+        query: Search terms (e.g., "Huda Siraj", "username instagram")
+        max_images: Number of images to download
+    
+    Returns: list of image paths with metadata
     """
     try:
-        # Create temp directory for downloads
-        download_dir = "temp_search_results"
-        if not os.path.exists(download_dir):
-            os.makedirs(download_dir)
+        print(f"[Search] Searching Bing for: '{query}'")
         
-        # Download images
-        bing_image_downloader.download(
+        # Create dataset folder
+        dataset_dir = "dataset"
+        if not os.path.exists(dataset_dir):
+            os.makedirs(dataset_dir)
+        
+        # Sanitize query for folder name
+        safe_query = "".join(c for c in query if c.isalnum() or c in (' ', '-')).rstrip()
+        
+        # Create Bing downloader instance
+        bing = Bing(
             query,
             limit=max_images,
-            output_dir="dataset",
+            output_dir=dataset_dir,
             adult_filter_off=True,
             force_replace=False,
             timeout=60,
             verbose=False
         )
         
-        # Extract URLs (this is a bit hacky, but works for MVP)
+        print(f"[Search] Starting download...")
+        bing.download()
+        print(f"[Search] Download complete")
+        
+        # Get results from downloaded folder
         results = []
-        search_dir = f"dataset/{query}"
+        search_dir = os.path.join(dataset_dir, safe_query)
         
         if os.path.exists(search_dir):
-            for img_file in os.listdir(search_dir)[:max_images]:
+            files = os.listdir(search_dir)
+            print(f"[Search] Found {len(files)} images for '{query}'")
+            
+            for img_file in files[:max_images]:
                 img_path = os.path.join(search_dir, img_file)
-                results.append({
-                    'url': img_path,  # For MVP, using local path
-                    'title': img_file,
-                    'source': 'bing',
-                })
+                
+                if os.path.isfile(img_path) and img_file.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                    results.append({
+                        'url': img_path,
+                        'title': img_file,
+                        'source': f'bing-search:{query}',
+                    })
+        else:
+            print(f"[Search] Search directory not found: {search_dir}")
         
+        print(f"[Search] Returning {len(results)} image paths")
         return results
     
     except Exception as e:
-        print(f"Error searching images: {e}")
-        return []
-
-def search_images_bing_api(query="person", max_images=15, api_key=None):
-    """
-    Alternative: Use actual Bing Search API (requires API key)
-    This is more reliable but needs authentication
-    """
-    if not api_key:
-        print("No Bing API key provided")
-        return []
-    
-    try:
-        search_url = "https://api.bing.microsoft.com/v7.0/images/search"
-        headers = {"Ocp-Apim-Subscription-Key": api_key}
-        params = {
-            "q": query,
-            "count": max_images,
-            "imageType": "Photo"
-        }
-        
-        response = requests.get(search_url, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
-        
-        search_results = response.json()
-        results = []
-        
-        for image in search_results.get('value', []):
-            results.append({
-                'url': image.get('contentUrl'),
-                'title': image.get('name'),
-                'source': image.get('hostPageUrl'),
-                'thumbnail': image.get('thumbnailUrl')
-            })
-        
-        return results
-    
-    except Exception as e:
-        print(f"Error with Bing API: {e}")
+        print(f"[Search] Error during search: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def validate_image_url(image_url):
-    """
-    Check if URL is valid and contains an actual image
-    """
+    """Check if image exists"""
     try:
-        response = requests.head(image_url, timeout=5)
-        content_type = response.headers.get('content-type', '')
-        
-        return 'image' in content_type.lower()
-    
+        return os.path.exists(image_url)
     except Exception as e:
-        print(f"Error validating image URL: {e}")
+        print(f"Error validating image: {e}")
         return False
