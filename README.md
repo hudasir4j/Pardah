@@ -43,15 +43,15 @@ Frontend Stack
   
 Backend Stack
 * Logistics
-- Flask: Python web framework for creating REST API endpoints
-- Flask-CORS: Enables cross-origin requests from React frontend
-- Python-dotenv: Environment variable management
+  - Flask: Python web framework for creating REST API endpoints
+  - Flask-CORS: Enables cross-origin requests from React frontend
+  - Python-dotenv: Environment variable management
 * Libraries
-- DeepFace: AI library for facial recognition using FaceNet512 model
-- OpenCV: Image processing and computer vision operations
-- Pillow (PIL): Image manipulation and format conversion
-- NumPy: Mathematical operations on face embeddings (512-dimensional vectors)
-- Bing Image Downloader: Web scraping tool to search and download images
-- Requests: HTTP library for downloading images from URLs
-- Werkzeug: Secure filename handling and file upload management
-- Hashlib: SHA256 image hashing for reporting
+  - DeepFace: AI library for facial recognition using FaceNet512 model
+  - OpenCV: Image processing and computer vision operations
+  - Pillow (PIL): Image manipulation and format conversion
+  - NumPy: Mathematical operations on face embeddings (512-dimensional vectors)
+  - Bing Image Downloader: Web scraping tool to search and download images
+  - Requests: HTTP library for downloading images from URLs
+  - Werkzeug: Secure filename handling and file upload management
+  - Hashlib: SHA256 image hashing for reporting
