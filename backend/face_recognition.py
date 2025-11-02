@@ -75,9 +75,9 @@ def extract_face_embedding_from_url(image_url):
         print(f"[Face] Error extracting face from URL {image_url}: {e}")
         return None
 
-def compare_faces(user_embedding, search_embedding, threshold=0.5):
+def compare_faces(user_embedding, search_embedding, threshold=0.6):
     """
-    Compare two face embeddings using Euclidean distance
+    Compare two face embeddings using cosine distance (not Euclidean)
     
     Args:
         user_embedding: numpy array of user's face (512 dims)
@@ -87,15 +87,20 @@ def compare_faces(user_embedding, search_embedding, threshold=0.5):
     Returns:
         tuple: (is_match: bool, distance: float)
         
-    Distance interpretation:
+    Cosine distance interpretation:
     - < 0.4: Very likely same person
-    - 0.4-0.5: Probably same person
-    - 0.5-0.7: Uncertain
-    - > 0.7: Different people
+    - 0.4-0.6: Probably same person
+    - 0.6+: Different people
     """
     try:
-        # Calculate Euclidean distance
-        distance = np.linalg.norm(user_embedding - search_embedding)
+        # Normalize embeddings
+        user_norm = user_embedding / np.linalg.norm(user_embedding)
+        search_norm = search_embedding / np.linalg.norm(search_embedding)
+        
+        # Calculate cosine distance (1 - cosine similarity)
+        cosine_sim = np.dot(user_norm, search_norm)
+        distance = 1 - cosine_sim
+        
         is_match = distance < threshold
         return is_match, distance
     except Exception as e:

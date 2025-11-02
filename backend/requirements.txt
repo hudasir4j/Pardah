@@ -7,3 +7,4 @@ deepface==0.0.95
 opencv-python==4.12.0.88
 bing-image-downloader==1.1.2
 numpy
+tf-keras==2.15.0

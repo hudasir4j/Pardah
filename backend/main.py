@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
@@ -29,6 +29,20 @@ def allowed_file(filename):
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'}), 200
+
+@app.route('/image/<path:filepath>', methods=['GET'])
+def serve_image(filepath):
+    """
+    Serve images from the dataset folder
+    """
+    try:
+        import urllib.parse
+        decoded_path = urllib.parse.unquote(filepath)
+        print(f"[Image] Serving: {decoded_path}")
+        return send_file(decoded_path)
+    except Exception as e:
+        print(f"[Image] Error: {e}")
+        return jsonify({'error': str(e)}), 404
 
 @app.route('/upload', methods=['POST'])
 def upload_image():
@@ -105,10 +119,16 @@ def upload_image():
         matched_images = match_faces(
             user_embedding=user_embedding,
             search_results=unique_results,
-            threshold=0.5  # Slightly higher threshold for more confidence
+            threshold=0.5
         )
         
         print(f"[Upload] Found {len(matched_images)} matching images")
+        
+        # Convert local paths to accessible URLs
+        for match in matched_images:
+            if match['url'].startswith('dataset/'):
+                # Convert to URL that frontend can access
+                match['url'] = f"http://localhost:5000/image/{match['url']}"
         
         return jsonify({
             'status': 'success',

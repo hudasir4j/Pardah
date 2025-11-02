@@ -1,5 +1,7 @@
 from bing_image_downloader.bing import Bing
+from pathlib import Path
 import os
+import shutil
 
 def search_images_bing(query="person", max_images=10):
     """
@@ -7,7 +9,7 @@ def search_images_bing(query="person", max_images=10):
     This finds images of the SPECIFIC PERSON the user searches for
     
     Args:
-        query: Search terms (e.g., "Huda Siraj", "username instagram")
+        query: Search terms (e.g., "Beyonce", "username instagram")
         max_images: Number of images to download
     
     Returns: list of image paths with metadata
@@ -15,50 +17,61 @@ def search_images_bing(query="person", max_images=10):
     try:
         print(f"[Search] Searching Bing for: '{query}'")
         
-        # Create dataset folder
-        dataset_dir = "dataset"
-        if not os.path.exists(dataset_dir):
-            os.makedirs(dataset_dir)
+        # Create dataset folder if it doesn't exist
+        dataset_dir = Path("dataset")
+        dataset_dir.mkdir(exist_ok=True)
         
         # Sanitize query for folder name
         safe_query = "".join(c for c in query if c.isalnum() or c in (' ', '-')).rstrip()
+        search_dir = dataset_dir / safe_query
         
-        # Create Bing downloader instance
-        bing = Bing(
-            query,
-            limit=max_images,
-            output_dir=dataset_dir,
-            adult_filter_off=True,
-            force_replace=False,
-            timeout=60,
-            verbose=False
-        )
+        # Clean up old results for this search
+        if search_dir.exists():
+            shutil.rmtree(search_dir)
+        search_dir.mkdir(exist_ok=True)
         
-        print(f"[Search] Starting download...")
-        bing.download()
-        print(f"[Search] Download complete")
+        # Download images using Bing class
+        try:
+            print(f"[Search] Starting Bing download to {search_dir}...")
+            bing = Bing(
+                query,
+                limit=max_images,
+                output_dir=dataset_dir,
+                adult='off',
+                timeout=60
+            )
+            bing.run()
+            print(f"[Search] Bing download complete")
+        except Exception as e:
+            print(f"[Search] Download error: {e}")
+            return []
         
-        # Get results from downloaded folder
+        # Find downloaded images in dataset root and move them to query folder
+        image_extensions = ('.jpg', '.jpeg', '.png', '.gif')
+        all_images = []
+        
+        # Look for images in dataset_dir (root)
+        for ext in image_extensions:
+            all_images.extend(dataset_dir.glob(f'*{ext}'))
+            all_images.extend(dataset_dir.glob(f'*{ext.upper()}'))
+        
+        print(f"[Search] Found {len(all_images)} downloaded images in dataset root")
+        
+        # Move them to the query-specific folder
         results = []
-        search_dir = os.path.join(dataset_dir, safe_query)
+        for img_path in all_images[:max_images]:
+            try:
+                dest = search_dir / img_path.name
+                shutil.move(str(img_path), str(dest))
+                results.append({
+                    'url': str(dest),
+                    'title': img_path.name,
+                    'source': f'bing-search:{query}',
+                })
+            except Exception as e:
+                print(f"[Search] Error moving image {img_path.name}: {e}")
         
-        if os.path.exists(search_dir):
-            files = os.listdir(search_dir)
-            print(f"[Search] Found {len(files)} images for '{query}'")
-            
-            for img_file in files[:max_images]:
-                img_path = os.path.join(search_dir, img_file)
-                
-                if os.path.isfile(img_path) and img_file.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                    results.append({
-                        'url': img_path,
-                        'title': img_file,
-                        'source': f'bing-search:{query}',
-                    })
-        else:
-            print(f"[Search] Search directory not found: {search_dir}")
-        
-        print(f"[Search] Returning {len(results)} image paths")
+        print(f"[Search] Returning {len(results)} image paths from {search_dir}")
         return results
     
     except Exception as e:
@@ -68,7 +81,9 @@ def search_images_bing(query="person", max_images=10):
         return []
 
 def validate_image_url(image_url):
-    """Check if image exists"""
+    """
+    Check if image file exists
+    """
     try:
         return os.path.exists(image_url)
     except Exception as e:
