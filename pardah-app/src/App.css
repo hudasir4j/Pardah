@@ -1360,7 +1360,7 @@ body {
   content: none !important;
 }
 
-/* Divider between left hero and right panel: layered metallic gold strip */
+/* Divider between hero and upload: same banding as .hero-arch-floral (inset 1 / gold / glow / outer) */
 .hero-block::after {
   display: block !important;
   content: '' !important;
@@ -1372,15 +1372,16 @@ body {
   pointer-events: none;
   background: linear-gradient(
     90deg,
-    rgba(241, 207, 126, 0.95) 0%,
-    rgba(212, 168, 74, 0.98) 38%,
-    rgba(170, 124, 42, 0.95) 58%,
-    rgba(224, 186, 102, 0.98) 78%,
-    rgba(132, 91, 23, 0.96) 100%
+    var(--hero-seam-inner-dark, rgba(20, 12, 6, 0.35)) 0,
+    var(--hero-seam-inner-dark, rgba(20, 12, 6, 0.35)) 1px,
+    var(--hero-gold-line, #d4a84a) 1px,
+    var(--hero-gold-line, #d4a84a) 3px,
+    var(--hero-gold-glow, rgba(212, 168, 74, 0.35)) 3px,
+    var(--hero-gold-glow, rgba(212, 168, 74, 0.35)) 5px,
+    var(--hero-seam-outer-dark, rgba(0, 0, 0, 0.08)) 5px,
+    var(--hero-seam-outer-dark, rgba(0, 0, 0, 0.08)) 6px
   );
-  box-shadow:
-    inset 1px 0 0 rgba(255, 236, 180, 0.55),
-    inset -1px 0 0 rgba(88, 56, 10, 0.42);
+  box-shadow: none;
 }
 
 .hero-arch-clip-svg {
@@ -1431,10 +1432,10 @@ body {
     13px 13px,
     100% 100%;
   box-shadow:
-    inset 0 0 0 1px rgba(20, 12, 6, 0.35),
+    inset 0 0 0 1px var(--hero-seam-inner-dark, rgba(20, 12, 6, 0.35)),
     inset 0 0 0 3px var(--hero-gold-line, #d4a84a),
     inset 0 0 0 5px var(--hero-gold-glow, rgba(212, 168, 74, 0.35)),
-    inset 0 0 0 6px rgba(0, 0, 0, 0.08);
+    inset 0 0 0 6px var(--hero-seam-outer-dark, rgba(0, 0, 0, 0.08));
 }
 
 .hero-arch-floral::after {
@@ -1681,15 +1682,16 @@ body {
     height: 6px;
     background: linear-gradient(
       180deg,
-      rgba(241, 207, 126, 0.95) 0%,
-      rgba(212, 168, 74, 0.98) 38%,
-      rgba(170, 124, 42, 0.95) 58%,
-      rgba(224, 186, 102, 0.98) 78%,
-      rgba(132, 91, 23, 0.96) 100%
+      var(--hero-seam-inner-dark, rgba(20, 12, 6, 0.35)) 0,
+      var(--hero-seam-inner-dark, rgba(20, 12, 6, 0.35)) 1px,
+      var(--hero-gold-line, #d4a84a) 1px,
+      var(--hero-gold-line, #d4a84a) 3px,
+      var(--hero-gold-glow, rgba(212, 168, 74, 0.35)) 3px,
+      var(--hero-gold-glow, rgba(212, 168, 74, 0.35)) 5px,
+      var(--hero-seam-outer-dark, rgba(0, 0, 0, 0.08)) 5px,
+      var(--hero-seam-outer-dark, rgba(0, 0, 0, 0.08)) 6px
     );
-    box-shadow:
-      inset 0 1px 0 rgba(255, 236, 180, 0.55),
-      inset 0 -1px 0 rgba(88, 56, 10, 0.42);
+    box-shadow: none;
   }
 }
 
@@ -1913,7 +1915,7 @@ body {
 /* =========================================================
    Theme v5: Default deep ember (#470f04) + gold trim accents.
    Alternate noir/mauve: click the “h” in hero “Pardah” or set html[data-theme="mauve"].
-   Hero arch (sage / terracotta / cream) unchanged between themes.
+   Hero arch colors: ember in :root; mauve-coherent palette in html[data-theme="mauve"].
    ========================================================= */
 :root {
   --pardah-navy: #470f04;
@@ -1965,6 +1967,9 @@ body {
   --hero-gold-line: #d4a84a;
   --hero-gold-glow: rgba(212, 168, 74, 0.45);
   --hero-arch-cream: #ffeebc;
+  /* Hero ↔ upload seam (matches .hero-arch-floral inset stack) */
+  --hero-seam-inner-dark: rgba(20, 12, 6, 0.35);
+  --hero-seam-outer-dark: rgba(0, 0, 0, 0.08);
 }
 
 html[data-theme='mauve'] {
@@ -2010,6 +2015,36 @@ html[data-theme='mauve'] {
   --ink-soft: var(--pardah-ink-muted);
   --accent-2: var(--pardah-coral);
   --accent-3: var(--pardah-coral-bright);
+
+  /* Hero (Pardah arch): plum / mauve field, rose trim, cool cream — matches purple chrome */
+  --hero-terracotta: #3a1f42;
+  --hero-field-sage: #352548;
+  --hero-field-sage-deep: #241a32;
+  --hero-gold-line: #d8a8cc;
+  --hero-gold-glow: rgba(225, 160, 207, 0.38);
+  --hero-arch-cream: #f3e9f6;
+  --hero-seam-inner-dark: rgba(55, 32, 68, 0.48);
+  --hero-seam-outer-dark: rgba(0, 0, 0, 0.14);
+}
+
+html[data-theme='mauve'] .hero-arch-floral {
+  box-shadow:
+    inset 0 0 0 1px var(--hero-seam-inner-dark, rgba(55, 32, 68, 0.48)),
+    inset 0 0 0 3px var(--hero-gold-line, #d8a8cc),
+    inset 0 0 0 5px var(--hero-gold-glow, rgba(225, 160, 207, 0.38)),
+    inset 0 0 0 6px var(--hero-seam-outer-dark, rgba(0, 0, 0, 0.14));
+}
+
+html[data-theme='mauve'] .hero-arch-inner .hero-title {
+  color: #1a1222 !important;
+}
+
+html[data-theme='mauve'] .hero-arch-inner .hero-subtitle {
+  color: rgba(42, 30, 52, 0.9) !important;
+}
+
+html[data-theme='mauve'] .hero-mughal-motif {
+  filter: saturate(1.15) hue-rotate(58deg) brightness(1.04);
 }
 
 body {
