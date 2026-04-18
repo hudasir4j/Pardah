@@ -1,6 +1,65 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Upload, ChevronLeft, ChevronRight } from 'lucide-react';
 import './App.css';
+import flowerMotifSrc from './Flower.svg';
+
+const PARDAH_THEME_STORAGE_KEY = 'pardah-theme';
+
+const getHostFromUrl = (urlString) => {
+  try {
+    return new URL(urlString).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+};
+
+const getRemovalAction = (photo) => {
+  const pageUrl = photo.pageUrl || photo.url;
+  const host = getHostFromUrl(pageUrl);
+  const source = (photo.source || '').toLowerCase();
+
+  if (host.includes('instagram.com')) {
+    return {
+      title: 'Report on Instagram',
+      description: 'Open the post and use Instagram\'s official report flow.',
+      buttonText: 'Open Instagram Report Help →',
+      primaryUrl: 'https://help.instagram.com/165828726894770',
+      secondaryUrl: pageUrl,
+      secondaryText: 'Open matched Instagram page',
+    };
+  }
+
+  if (host.includes('facebook.com')) {
+    return {
+      title: 'Report on Facebook',
+      description: 'Open the post and use Facebook\'s official report flow.',
+      buttonText: 'Open Facebook Report Help →',
+      primaryUrl: 'https://www.facebook.com/help/181495968648557',
+      secondaryUrl: pageUrl,
+      secondaryText: 'Open matched Facebook page',
+    };
+  }
+
+  if (source.includes('google')) {
+    return {
+      title: 'Request removal from Google',
+      description: 'Use Google\'s removal request flow for this indexed result.',
+      buttonText: 'Open Google Removal Tool →',
+      primaryUrl: `https://www.google.com/webmasters/tools/removals?hl=en&pli=1&url=${encodeURIComponent(pageUrl)}`,
+      secondaryUrl: pageUrl,
+      secondaryText: 'Open matched page',
+    };
+  }
+
+  return {
+    title: `Request removal from ${host || 'the source site'}`,
+    description: 'Open the source page first, then submit a report or removal request on that platform.',
+    buttonText: 'Open matched page →',
+    primaryUrl: pageUrl,
+    secondaryUrl: 'https://support.google.com/websearch/troubleshooter/3111061?hl=en',
+    secondaryText: 'Google result takedown help',
+  };
+};
 
 const getStackRotations = (photoIndex) => {
   const seed = photoIndex;
@@ -13,23 +72,71 @@ const getStackRotations = (photoIndex) => {
 };
 
 // LandingPage component
-const LandingPage = ({ 
-  photoPreview, 
-  userName, 
-  error, 
-  isLoading, 
+const LandingPage = ({
+  photoPreview,
+  userName,
+  error,
+  isLoading,
   uploadedPhoto,
-  handlePhotoUpload, 
-  setUserName, 
-  handleSubmit 
+  handlePhotoUpload,
+  setUserName,
+  handleSubmit,
+  onToggleHiddenTheme,
 }) => {
   return (
     <div className="landing-page">
-      {/* Light Blue Section - Title and Subtitle */}
+      {/* Left: full-height Mughal arch — floral frame, plain interior with title */}
       <section className="hero-block">
-        <div className="hero-content">
-          <h1 className="hero-title">Pardah</h1>
-          <p className="hero-subtitle">Reclaim your modesty.</p>
+        <svg className="hero-arch-clip-svg" width="0" height="0" aria-hidden="true" focusable="false">
+          <defs>
+            {/*
+              Arch shape from project Arch.svg (center cell of the tile grid, top-middle arch).
+              Path coords are in the source file space; matrix maps bbox to 0–1 for clipPathUnits.
+            */}
+            <clipPath id="heroMughalArchClip" clipPathUnits="objectBoundingBox">
+              <path
+                fill="#000"
+                fillRule="evenodd"
+                transform="matrix(0.0016799 0 0 0.000916 -2.5734 -0.19574)"
+                d="M 2127.179688 1305.398438 L 1531.910156 1305.398438 L 1531.910156 463.511719 C 1531.910156 285.421875 1779.621094 400.019531 1829.550781 213.691406 C 1879.46875 400.019531 2127.179688 285.421875 2127.179688 463.511719 L 2127.179688 1305.398438 L 1531.910156 1305.398438 Z"
+              />
+            </clipPath>
+          </defs>
+        </svg>
+        <div className="hero-arch-panel">
+          <div className="hero-arch-floral" aria-hidden="true" />
+          <div className="hero-arch-inner">
+            <div className="hero-arch-cream">
+            <div className="hero-arch-motif-wrap" aria-hidden="true">
+              <img
+                src={flowerMotifSrc}
+                alt=""
+                className="hero-mughal-motif"
+                decoding="async"
+                aria-hidden
+              />
+            </div>
+            <div className="hero-content">
+              <h1 className="hero-title" aria-label="Pardah">
+                <span aria-hidden="true">
+                  Parda
+                  <span
+                    className="hero-title-h-hit"
+                    role="presentation"
+                    tabIndex={-1}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onToggleHiddenTheme();
+                    }}
+                  >
+                    h
+                  </span>
+                </span>
+              </h1>
+              <p className="hero-subtitle">Reclaim your modesty.</p>
+            </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -85,6 +192,25 @@ const LandingPage = ({
           >
             {isLoading ? 'Searching...' : 'Submit'}
           </button>
+
+          {isLoading && (
+            <div className="processing-panel" aria-live="polite">
+              <div className="processing-header">
+                <span className="processing-title">Scanning the web for matches</span>
+                <span className="processing-dots">
+                  <i></i><i></i><i></i>
+                </span>
+              </div>
+              <div className="processing-bars">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <p className="processing-subtext">
+                Searching across sources and comparing facial embeddings.
+              </p>
+            </div>
+          )}
         </div>
       </section>
     </div>
@@ -110,6 +236,7 @@ const ReviewPage = ({
   const currentPhoto = foundPhotos[currentPhotoIndex];
   const totalPhotos = foundPhotos.length;
   const stackRotations = getStackRotations(currentPhotoIndex);
+  const reviewProgress = totalPhotos > 0 ? ((currentPhotoIndex + 1) / totalPhotos) * 100 : 0;
 
   if (!currentPhoto) return null;
 
@@ -139,6 +266,9 @@ const ReviewPage = ({
         <div className="photo-review-section">
           <div className="photo-counter">
             {currentPhotoIndex + 1}/{totalPhotos}
+          </div>
+          <div className="review-progress-track" aria-hidden="true">
+            <div className="review-progress-fill" style={{ width: `${reviewProgress}%` }} />
           </div>
 
           <div className="photo-navigation">
@@ -187,10 +317,15 @@ const ReviewPage = ({
                       className="photo-image"
                     />
                     <div className="photo-info">
+                      <div className="source-chip-row">
+                        <span className="source-chip">{currentPhoto.source}</span>
+                        <span className="source-chip source-chip-muted">
+                          {getHostFromUrl(currentPhoto.pageUrl || currentPhoto.url) || 'Unknown host'}
+                        </span>
+                      </div>
                       <p className="similarity-text">
                         Similarity: {(currentPhoto.similarity * 100).toFixed(0)}%
                       </p>
-                      <p className="source-text">Source: {currentPhoto.source}</p>
                     </div>
                   </div>
                 )}
@@ -223,16 +358,22 @@ const ReviewPage = ({
                 <img src={currentPhoto.url} alt="Preview" className="remove-image" />
               </div>
               <div className="remove-info">
-                <h3 className="remove-title">
-                  Report this photo to Google
-                </h3>
+                <h3 className="remove-title">{getRemovalAction(currentPhoto).title}</h3>
                 <p className="remove-text">
-                  Click the button below to report this image to Google for removal. You'll need to be signed into your Google account.
+                  {getRemovalAction(currentPhoto).description}
                 </p>
                 <div className="remove-actions">
                   <button onClick={handleRemove} className="remove-link-button">
-                    Report to Google →
+                    {getRemovalAction(currentPhoto).buttonText}
                   </button>
+                  {getRemovalAction(currentPhoto).secondaryUrl && (
+                    <button
+                      onClick={() => window.open(getRemovalAction(currentPhoto).secondaryUrl, '_blank')}
+                      className="not-me-button"
+                    >
+                      {getRemovalAction(currentPhoto).secondaryText}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -312,6 +453,37 @@ const CompletePage = ({
 
 // Main App component
 export default function App() {
+  const applyStoredTheme = useCallback(() => {
+    try {
+      if (localStorage.getItem(PARDAH_THEME_STORAGE_KEY) === 'mauve') {
+        document.documentElement.setAttribute('data-theme', 'mauve');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
+    } catch {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }, []);
+
+  useEffect(() => {
+    applyStoredTheme();
+  }, [applyStoredTheme]);
+
+  const handleToggleHiddenTheme = useCallback(() => {
+    try {
+      const isMauve = document.documentElement.getAttribute('data-theme') === 'mauve';
+      if (isMauve) {
+        document.documentElement.removeAttribute('data-theme');
+        localStorage.setItem(PARDAH_THEME_STORAGE_KEY, 'ember');
+      } else {
+        document.documentElement.setAttribute('data-theme', 'mauve');
+        localStorage.setItem(PARDAH_THEME_STORAGE_KEY, 'mauve');
+      }
+    } catch {
+      /* private mode / blocked storage */
+    }
+  }, []);
+
   const [currentPage, setCurrentPage] = useState('landing');
   const [uploadedPhoto, setUploadedPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -323,6 +495,7 @@ export default function App() {
   const [showRemoveSection, setShowRemoveSection] = useState(false);
   const [showExitWarning, setShowExitWarning] = useState(false);
   const [error, setError] = useState(null);
+  const [searchDebug, setSearchDebug] = useState(null);
 
   const searchGooglePhotos = async (photo) => {
     setIsLoading(true);
@@ -346,6 +519,7 @@ export default function App() {
           url: match.url,
           source: match.source,
           sourceUrl: match.url,
+          pageUrl: match.page_url || match.url,
           similarity: match.similarity_score,
           distance: match.distance,
           hash: match.image_hash,
@@ -354,9 +528,11 @@ export default function App() {
         }));
 
         setFoundPhotos(photosWithMetadata);
+        setSearchDebug(data.search_debug || null);
         setCurrentPage('review');
       } else {
         setError('No matching photos found. Try a different search term.');
+        setSearchDebug(data.search_debug || null);
       }
 
       setIsLoading(false);
@@ -425,7 +601,8 @@ export default function App() {
 
   const handleRemove = () => {
     const currentPhoto = foundPhotos[currentPhotoIndex];
-    const reportLink = `https://www.google.com/webmasters/tools/removals?hl=en&pli=1&url=${encodeURIComponent(currentPhoto.url)}`;
+    const action = getRemovalAction(currentPhoto);
+    const reportLink = action.primaryUrl;
     window.open(reportLink, '_blank');
 
     const updatedPhotos = [...foundPhotos];
@@ -475,24 +652,33 @@ export default function App() {
           handlePhotoUpload={handlePhotoUpload}
           setUserName={setUserName}
           handleSubmit={handleSubmit}
+          onToggleHiddenTheme={handleToggleHiddenTheme}
         />
       )}
       {currentPage === 'review' && (
-        <ReviewPage
-          foundPhotos={foundPhotos}
-          currentPhotoIndex={currentPhotoIndex}
-          showFeedbackCard={showFeedbackCard}
-          showRemoveSection={showRemoveSection}
-          showExitWarning={showExitWarning}
-          handlePrevious={handlePrevious}
-          handleNext={handleNext}
-          handleRemoveButton={handleRemoveButton}
-          handleNotMe={handleNotMe}
-          handleRemove={handleRemove}
-          handleGoHome={handleGoHome}
-          confirmGoHome={confirmGoHome}
-          cancelGoHome={cancelGoHome}
-        />
+        <>
+          {searchDebug && (
+            <div className="error-message" style={{ margin: '12px auto', maxWidth: 900 }}>
+              Sources this run: {Object.entries(searchDebug.source_counts || {}).map(([k, v]) => `${k}: ${v}`).join(' | ')}
+              {searchDebug.source_notes?.length ? ` | ${searchDebug.source_notes.join(' ')}` : ''}
+            </div>
+          )}
+          <ReviewPage
+            foundPhotos={foundPhotos}
+            currentPhotoIndex={currentPhotoIndex}
+            showFeedbackCard={showFeedbackCard}
+            showRemoveSection={showRemoveSection}
+            showExitWarning={showExitWarning}
+            handlePrevious={handlePrevious}
+            handleNext={handleNext}
+            handleRemoveButton={handleRemoveButton}
+            handleNotMe={handleNotMe}
+            handleRemove={handleRemove}
+            handleGoHome={handleGoHome}
+            confirmGoHome={confirmGoHome}
+            cancelGoHome={cancelGoHome}
+          />
+        </>
       )}
       {currentPage === 'complete' && (
         <CompletePage

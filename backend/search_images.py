@@ -66,7 +66,7 @@ def search_images_bing(query="person", max_images=10):
                 results.append({
                     'url': str(dest),
                     'title': img_path.name,
-                    'source': f'bing-search:{query}',
+                    'source': 'Bing Images',
                 })
             except Exception as e:
                 print(f"[Search] Error moving image {img_path.name}: {e}")

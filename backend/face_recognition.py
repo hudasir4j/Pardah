@@ -151,6 +151,7 @@ def match_faces(user_embedding, search_results, threshold=0.5):
                 
                 match_data = {
                     'url': image_url,
+                    'page_url': result.get('page_url', image_url),
                     'title': image_title,
                     'source': result.get('source', 'Unknown'),
                     'similarity_score': similarity,

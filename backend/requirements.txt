@@ -3,8 +3,11 @@ flask-cors==6.0.1
 python-dotenv==1.0.0
 requests==2.31.0
 pillow==11.1.0
+# TensorFlow 2.15.x requires numpy<2; opencv 4.10+ requires numpy>=2 on Py3.9+, so we pin both
+numpy>=1.23.5,<2.0.0
+tensorflow>=2.15.0,<2.16
 deepface==0.0.95
-opencv-python==4.12.0.88
+# opencv <4.10 works with numpy 1.x (TF 2.15)
+opencv-python>=4.5.5,<4.10
 bing-image-downloader==1.1.2
-numpy
-tf-keras==2.15.0
+duckduckgo-search>=8.0.0
