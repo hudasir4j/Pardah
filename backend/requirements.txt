@@ -9,5 +9,8 @@ tensorflow>=2.15.0,<2.16
 deepface==0.0.95
 # opencv <4.10 works with numpy 1.x (TF 2.15)
 opencv-python>=4.5.5,<4.10
+# bing-image-downloader is no longer required at runtime (we scrape the async
+# endpoint directly in search_images.py), but kept as a safety fallback.
 bing-image-downloader==1.1.2
-duckduckgo-search>=8.0.0
+# The `duckduckgo_search` package has been renamed to `ddgs` upstream.
+ddgs>=9.0.0

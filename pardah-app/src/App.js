@@ -4,6 +4,7 @@ import './App.css';
 import flowerMotifSrc from './Flower.svg';
 
 const PARDAH_THEME_STORAGE_KEY = 'pardah-theme';
+const BACKEND_URL = 'http://localhost:5000';
 
 const getHostFromUrl = (urlString) => {
   try {
@@ -13,52 +14,259 @@ const getHostFromUrl = (urlString) => {
   }
 };
 
-const getRemovalAction = (photo) => {
-  const pageUrl = photo.pageUrl || photo.url;
-  const host = getHostFromUrl(pageUrl);
-  const source = (photo.source || '').toLowerCase();
-
-  if (host.includes('instagram.com')) {
-    return {
-      title: 'Report on Instagram',
-      description: 'Open the post and use Instagram\'s official report flow.',
-      buttonText: 'Open Instagram Report Help →',
-      primaryUrl: 'https://help.instagram.com/165828726894770',
-      secondaryUrl: pageUrl,
-      secondaryText: 'Open matched Instagram page',
-    };
+const copyToClipboard = async (text) => {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'absolute';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return true;
+  } catch {
+    return false;
   }
+};
 
-  if (host.includes('facebook.com')) {
-    return {
-      title: 'Report on Facebook',
-      description: 'Open the post and use Facebook\'s official report flow.',
-      buttonText: 'Open Facebook Report Help →',
-      primaryUrl: 'https://www.facebook.com/help/181495968648557',
-      secondaryUrl: pageUrl,
-      secondaryText: 'Open matched Facebook page',
-    };
-  }
+const STATUS_LABELS = {
+  pending: 'Not reported',
+  submitted: 'Reported',
+  removed: 'Removed',
+};
 
-  if (source.includes('google')) {
-    return {
-      title: 'Request removal from Google',
-      description: 'Use Google\'s removal request flow for this indexed result.',
-      buttonText: 'Open Google Removal Tool →',
-      primaryUrl: `https://www.google.com/webmasters/tools/removals?hl=en&pli=1&url=${encodeURIComponent(pageUrl)}`,
-      secondaryUrl: pageUrl,
-      secondaryText: 'Open matched page',
-    };
-  }
+const RemovalWizard = ({ photo, plan, loading, error, onMarkReported, onCancel }) => {
+  const [copiedKey, setCopiedKey] = useState(null);
+  const [showDmca, setShowDmca] = useState(false);
 
-  return {
-    title: `Request removal from ${host || 'the source site'}`,
-    description: 'Open the source page first, then submit a report or removal request on that platform.',
-    buttonText: 'Open matched page →',
-    primaryUrl: pageUrl,
-    secondaryUrl: 'https://support.google.com/websearch/troubleshooter/3111061?hl=en',
-    secondaryText: 'Google result takedown help',
+  const handleCopy = async (key, text) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 1800);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="remove-section wizard-section">
+        <div className="remove-preview">
+          <img src={photo.url} alt="Preview" className="remove-image" />
+        </div>
+        <div className="remove-info">
+          <h3 className="remove-title">Building your takedown plan…</h3>
+          <p className="remove-text">
+            Scanning the source site for a real contact address and drafting
+            a message you can send.
+          </p>
+          <div className="processing-bars">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !plan) {
+    return (
+      <div className="remove-section wizard-section">
+        <div className="remove-preview">
+          <img src={photo.url} alt="Preview" className="remove-image" />
+        </div>
+        <div className="remove-info">
+          <h3 className="remove-title">We couldn't build a plan.</h3>
+          <p className="remove-text">
+            {error || 'Something went wrong. You can still open the source page directly.'}
+          </p>
+          <div className="remove-actions">
+            <button
+              className="remove-link-button"
+              onClick={() => window.open(photo.pageUrl || photo.url, '_blank', 'noopener')}
+            >
+              Open source page →
+            </button>
+            <button className="not-me-button" onClick={onCancel}>Back</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const { steps = [], escalation, platform_label, host } = plan;
+
+  const renderEmailBlock = (key, contactEmail, subject, template, contactMeta) => {
+    const source = contactMeta?.source;
+    const pageUrl = contactMeta?.pageUrl;
+    let badge = null;
+    if (source === 'mailto' || source === 'text') {
+      badge = (
+        <span className="wizard-contact-badge wizard-contact-badge-verified">
+          Found on site
+        </span>
+      );
+    } else if (source === 'hunter') {
+      badge = (
+        <span className="wizard-contact-badge wizard-contact-badge-verified">
+          Verified
+        </span>
+      );
+    } else if (source === 'guess') {
+      badge = (
+        <span className="wizard-contact-badge wizard-contact-badge-guess">
+          Best guess
+        </span>
+      );
+    }
+    return (
+    <>
+      {contactEmail && (
+        <>
+          <div className="wizard-contact">
+            <span className="wizard-contact-label">Send to</span>
+            <code className="wizard-contact-email">{contactEmail}</code>
+            {badge}
+            <button
+              type="button"
+              className="wizard-contact-copy"
+              onClick={() => handleCopy(`${key}-to`, contactEmail)}
+            >
+              {copiedKey === `${key}-to` ? 'Copied ✓' : 'Copy address'}
+            </button>
+          </div>
+          {pageUrl && (source === 'mailto' || source === 'text') && (
+            <a
+              className="wizard-contact-source"
+              href={pageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View on the site →
+            </a>
+          )}
+        </>
+      )}
+      {subject && (
+        <div className="wizard-template-meta">
+          <span><strong>Subject:</strong> {subject}</span>
+        </div>
+      )}
+      <textarea
+        className="wizard-template"
+        readOnly
+        value={template}
+        rows={Math.min(14, Math.max(6, (template.match(/\n/g) || []).length + 2))}
+      />
+      <div className="wizard-step-actions">
+        <button
+          type="button"
+          className="remove-link-button wizard-primary"
+          onClick={() => handleCopy(`${key}-msg`, template)}
+        >
+          {copiedKey === `${key}-msg` ? 'Message copied ✓' : 'Copy message'}
+        </button>
+        <a
+          className="wizard-link-button wizard-link-subtle"
+          href="https://mail.google.com/mail/u/0/#inbox?compose=new"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open Gmail
+        </a>
+      </div>
+    </>
+    );
+  };
+
+  return (
+    <div className="remove-section wizard-section">
+      <div className="wizard-header">
+        <div className="remove-preview">
+          <img src={photo.url} alt="Preview" className="remove-image" />
+        </div>
+        <div className="wizard-header-text">
+          <h3 className="remove-title">Take it down from {platform_label || host || 'this site'}</h3>
+          <p className="remove-text">
+            Two quick steps. Copy the address and the message, paste them into Gmail
+            (or your favourite mail app), and send.
+          </p>
+        </div>
+      </div>
+
+      <ol className="wizard-steps">
+        {steps.map((s) => (
+          <li key={s.step} className="wizard-step">
+            <div className="wizard-step-number">{s.step}</div>
+            <div className="wizard-step-body">
+              <h4 className="wizard-step-title">{s.title}</h4>
+              {s.description && <p className="wizard-step-desc">{s.description}</p>}
+
+              {s.kind === 'email' && s.template
+                ? renderEmailBlock(
+                    `step-${s.step}`,
+                    s.contact_email,
+                    s.subject,
+                    s.template,
+                    { source: s.contact_source, pageUrl: s.contact_page_url },
+                  )
+                : null}
+
+              {s.primary && s.primary.url && (
+                <div className="wizard-step-actions">
+                  <button
+                    type="button"
+                    className="remove-link-button wizard-primary"
+                    onClick={() => window.open(s.primary.url, '_blank', 'noopener')}
+                  >
+                    {s.primary.label} →
+                  </button>
+                </div>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      {escalation && escalation.template && (
+        <details
+          className="wizard-escalation"
+          open={showDmca}
+          onToggle={(e) => setShowDmca(e.currentTarget.open)}
+        >
+          <summary className="wizard-escalation-summary">
+            <span className="wizard-escalation-tag">Worst case</span>
+            {escalation.title}
+          </summary>
+          <div className="wizard-escalation-body">
+            {escalation.description && (
+              <p className="wizard-step-desc">{escalation.description}</p>
+            )}
+            {renderEmailBlock(
+              'esc',
+              escalation.contact_email,
+              escalation.subject,
+              escalation.template,
+              { source: plan.contact_source, pageUrl: plan.contact_page_url },
+            )}
+          </div>
+        </details>
+      )}
+
+      <div className="wizard-footer">
+        <button className="remove-link-button wizard-primary" onClick={onMarkReported}>
+          I've submitted this report
+        </button>
+        <button className="not-me-button" onClick={onCancel}>
+          Back to photo
+        </button>
+      </div>
+    </div>
+  );
 };
 
 const getStackRotations = (photoIndex) => {
@@ -75,11 +283,13 @@ const getStackRotations = (photoIndex) => {
 const LandingPage = ({
   photoPreview,
   userName,
+  userEmail,
   error,
   isLoading,
   uploadedPhoto,
   handlePhotoUpload,
   setUserName,
+  setUserEmail,
   handleSubmit,
   onToggleHiddenTheme,
 }) => {
@@ -183,6 +393,21 @@ const LandingPage = ({
             />
           </div>
 
+          <div className="username-container">
+            <label htmlFor="email-input" className="username-label">
+              Your email <span className="username-label-hint">(optional, used in takedown messages)</span>
+            </label>
+            <input
+              id="email-input"
+              type="email"
+              value={userEmail}
+              onChange={(e) => setUserEmail(e.target.value)}
+              className="username-input"
+              placeholder="you@example.com"
+              autoComplete="email"
+            />
+          </div>
+
           {error && <div className="error-message">{error}</div>}
 
           <button
@@ -224,14 +449,18 @@ const ReviewPage = ({
   showFeedbackCard,
   showRemoveSection,
   showExitWarning,
+  removalPlan,
+  removalLoading,
+  removalError,
   handlePrevious,
   handleNext,
   handleRemoveButton,
   handleNotMe,
-  handleRemove,
+  handleMarkReported,
+  handleCloseRemoveSection,
   handleGoHome,
   confirmGoHome,
-  cancelGoHome
+  cancelGoHome,
 }) => {
   const currentPhoto = foundPhotos[currentPhotoIndex];
   const totalPhotos = foundPhotos.length;
@@ -322,6 +551,11 @@ const ReviewPage = ({
                         <span className="source-chip source-chip-muted">
                           {getHostFromUrl(currentPhoto.pageUrl || currentPhoto.url) || 'Unknown host'}
                         </span>
+                        {currentPhoto.status && currentPhoto.status !== 'pending' && (
+                          <span className={`source-chip status-chip status-chip-${currentPhoto.status}`}>
+                            {STATUS_LABELS[currentPhoto.status] || currentPhoto.status}
+                          </span>
+                        )}
                       </div>
                       <p className="similarity-text">
                         Similarity: {(currentPhoto.similarity * 100).toFixed(0)}%
@@ -353,30 +587,14 @@ const ReviewPage = ({
           )}
 
           {showRemoveSection && (
-            <div className="remove-section">
-              <div className="remove-preview">
-                <img src={currentPhoto.url} alt="Preview" className="remove-image" />
-              </div>
-              <div className="remove-info">
-                <h3 className="remove-title">{getRemovalAction(currentPhoto).title}</h3>
-                <p className="remove-text">
-                  {getRemovalAction(currentPhoto).description}
-                </p>
-                <div className="remove-actions">
-                  <button onClick={handleRemove} className="remove-link-button">
-                    {getRemovalAction(currentPhoto).buttonText}
-                  </button>
-                  {getRemovalAction(currentPhoto).secondaryUrl && (
-                    <button
-                      onClick={() => window.open(getRemovalAction(currentPhoto).secondaryUrl, '_blank')}
-                      className="not-me-button"
-                    >
-                      {getRemovalAction(currentPhoto).secondaryText}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+            <RemovalWizard
+              photo={currentPhoto}
+              plan={removalPlan}
+              loading={removalLoading}
+              error={removalError}
+              onMarkReported={handleMarkReported}
+              onCancel={handleCloseRemoveSection}
+            />
           )}
         </div>
       </div>
@@ -490,12 +708,16 @@ export default function App() {
   const [foundPhotos, setFoundPhotos] = useState([]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showFeedbackCard, setShowFeedbackCard] = useState(false);
   const [showRemoveSection, setShowRemoveSection] = useState(false);
   const [showExitWarning, setShowExitWarning] = useState(false);
   const [error, setError] = useState(null);
   const [searchDebug, setSearchDebug] = useState(null);
+  const [removalPlan, setRemovalPlan] = useState(null);
+  const [removalLoading, setRemovalLoading] = useState(false);
+  const [removalError, setRemovalError] = useState(null);
 
   const searchGooglePhotos = async (photo) => {
     setIsLoading(true);
@@ -506,7 +728,7 @@ export default function App() {
     formData.append('search_terms', userName);
 
     try {
-      const response = await fetch('http://localhost:5000/upload', {
+      const response = await fetch(`${BACKEND_URL}/upload`, {
         method: 'POST',
         body: formData
       });
@@ -524,7 +746,8 @@ export default function App() {
           distance: match.distance,
           hash: match.image_hash,
           isReviewed: false,
-          isApproved: null
+          isApproved: null,
+          status: 'pending',
         }));
 
         setFoundPhotos(photosWithMetadata);
@@ -579,11 +802,18 @@ export default function App() {
     }, 2000);
   };
 
+  const resetWizardState = () => {
+    setShowRemoveSection(false);
+    setRemovalPlan(null);
+    setRemovalError(null);
+    setRemovalLoading(false);
+  };
+
   const handlePrevious = () => {
     if (currentPhotoIndex > 0) {
       setCurrentPhotoIndex(currentPhotoIndex - 1);
       setShowFeedbackCard(false);
-      setShowRemoveSection(false);
+      resetWizardState();
     }
   };
 
@@ -591,26 +821,60 @@ export default function App() {
     if (currentPhotoIndex < foundPhotos.length - 1) {
       setCurrentPhotoIndex(currentPhotoIndex + 1);
       setShowFeedbackCard(false);
-      setShowRemoveSection(false);
+      resetWizardState();
     }
   };
 
-  const handleRemoveButton = () => {
+  const handleRemoveButton = async () => {
+    const currentPhoto = foundPhotos[currentPhotoIndex];
+    if (!currentPhoto) return;
     setShowRemoveSection(true);
+    setRemovalLoading(true);
+    setRemovalError(null);
+    setRemovalPlan(null);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/removal-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_url: currentPhoto.url,
+          page_url: currentPhoto.pageUrl || currentPhoto.url,
+          image_hash: currentPhoto.hash,
+          user_name: userName,
+          user_email: userEmail,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.plan) {
+        throw new Error(data.error || 'Could not build plan');
+      }
+      setRemovalPlan(data.plan);
+    } catch (err) {
+      console.error('removal-plan error:', err);
+      setRemovalError(
+        err.message || 'Could not connect to backend to build the takedown plan.'
+      );
+    } finally {
+      setRemovalLoading(false);
+    }
   };
 
-  const handleRemove = () => {
-    const currentPhoto = foundPhotos[currentPhotoIndex];
-    const action = getRemovalAction(currentPhoto);
-    const reportLink = action.primaryUrl;
-    window.open(reportLink, '_blank');
+  const handleCloseRemoveSection = () => {
+    resetWizardState();
+  };
 
+  const handleMarkReported = () => {
     const updatedPhotos = [...foundPhotos];
-    updatedPhotos[currentPhotoIndex].isApproved = true;
-    updatedPhotos[currentPhotoIndex].isReviewed = true;
+    updatedPhotos[currentPhotoIndex] = {
+      ...updatedPhotos[currentPhotoIndex],
+      isApproved: true,
+      isReviewed: true,
+      status: 'submitted',
+    };
     setFoundPhotos(updatedPhotos);
 
-    setShowRemoveSection(false);
+    resetWizardState();
 
     if (currentPhotoIndex < foundPhotos.length - 1) {
       setCurrentPhotoIndex(currentPhotoIndex + 1);
@@ -629,10 +893,9 @@ export default function App() {
     setPhotoPreview(null);
     setFoundPhotos([]);
     setCurrentPhotoIndex(0);
-    setUserName('');
     setShowExitWarning(false);
-    setShowRemoveSection(false);
     setShowFeedbackCard(false);
+    resetWizardState();
     setError(null);
   };
 
@@ -646,11 +909,13 @@ export default function App() {
         <LandingPage
           photoPreview={photoPreview}
           userName={userName}
+          userEmail={userEmail}
           error={error}
           isLoading={isLoading}
           uploadedPhoto={uploadedPhoto}
           handlePhotoUpload={handlePhotoUpload}
           setUserName={setUserName}
+          setUserEmail={setUserEmail}
           handleSubmit={handleSubmit}
           onToggleHiddenTheme={handleToggleHiddenTheme}
         />
@@ -669,11 +934,15 @@ export default function App() {
             showFeedbackCard={showFeedbackCard}
             showRemoveSection={showRemoveSection}
             showExitWarning={showExitWarning}
+            removalPlan={removalPlan}
+            removalLoading={removalLoading}
+            removalError={removalError}
             handlePrevious={handlePrevious}
             handleNext={handleNext}
             handleRemoveButton={handleRemoveButton}
             handleNotMe={handleNotMe}
-            handleRemove={handleRemove}
+            handleMarkReported={handleMarkReported}
+            handleCloseRemoveSection={handleCloseRemoveSection}
             handleGoHome={handleGoHome}
             confirmGoHome={confirmGoHome}
             cancelGoHome={cancelGoHome}

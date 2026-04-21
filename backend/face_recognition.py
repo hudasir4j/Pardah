@@ -1,201 +1,258 @@
-from deepface import DeepFace
+"""
+Face embedding + matching.
+
+Improvements over the original:
+- Preloads the Facenet512 model once at import time, so per-image work skips
+  model initialization.
+- Uses a shared HTTP session (browser UA, retries) and resolves social-media
+  crawler URLs to their real CDN image URL.
+- Parallelizes candidate processing with a ThreadPoolExecutor; each worker
+  writes to its own tempfile (the old code shared `/tmp/temp_face.jpg`,
+  which serialized everything).
+- Downscales images before detection (faster, less memory).
+- Reuses already-downloaded bytes for SHA-256 hashing instead of issuing a
+  second HTTP request.
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import BytesIO
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 from PIL import Image
-import requests
-from io import BytesIO
-import hashlib
+from deepface import DeepFace
 
-def extract_face_embedding(image_path):
-    """
-    Load an image and extract face embedding using DeepFace
-    Returns: numpy array of face embedding, or None if no face found
-    
-    Args:
-        image_path: Path to image file (local or URL)
-    
-    Returns:
-        numpy array of 512 numbers representing the face, or None
-    """
+from http_client import fetch_bytes
+from social_resolver import fetch_image_bytes_with_resolve
+
+
+# Preload model once so DeepFace.represent doesn't re-init per call.
+try:
+    _MODEL = DeepFace.build_model("Facenet512")
+    print("[Face] Facenet512 model preloaded")
+except Exception as _e:
+    _MODEL = None
+    print(f"[Face] Warning: model preload failed ({_e}); will build on demand")
+
+# Detector backend: opencv is ~3-5x faster than retinaface/mtcnn with
+# acceptable accuracy for our similarity threshold.
+_DETECTOR_BACKEND = os.environ.get("FACE_DETECTOR_BACKEND", "opencv")
+
+# Max edge for images passed to DeepFace. Larger images waste detector time.
+_MAX_IMAGE_EDGE = 1024
+
+# I/O-bound; we can afford more workers than CPU cores.
+_MAX_WORKERS = int(os.environ.get("FACE_MATCH_WORKERS", "6"))
+
+_model_lock = threading.Lock()
+
+
+def _prepare_image_file(image_bytes: bytes, out_path: str) -> bool:
+    """Decode, downscale, and re-encode as JPEG. Returns False on failure."""
+    try:
+        img = Image.open(BytesIO(image_bytes))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        elif img.mode == "L":
+            img = img.convert("RGB")
+        w, h = img.size
+        longest = max(w, h)
+        if longest > _MAX_IMAGE_EDGE:
+            scale = _MAX_IMAGE_EDGE / float(longest)
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        img.save(out_path, format="JPEG", quality=90)
+        return True
+    except Exception as e:
+        print(f"[Face] Could not decode image bytes: {e}")
+        return False
+
+
+def _represent(image_path: str, enforce_detection: bool = True):
+    """Thread-safe wrapper around DeepFace.represent."""
+    # DeepFace caches models via a module-level dict; calls from multiple
+    # threads concurrently into Keras can be flaky. A coarse lock around the
+    # inference call keeps us correct with little real-world cost because
+    # HTTP I/O and image decoding still run in parallel.
+    with _model_lock:
+        return DeepFace.represent(
+            img_path=image_path,
+            model_name="Facenet512",
+            detector_backend=_DETECTOR_BACKEND,
+            enforce_detection=enforce_detection,
+        )
+
+
+def extract_face_embedding(image_path: str) -> Optional[np.ndarray]:
+    """Extract a 512-dim face embedding from a local image file."""
     try:
         print(f"[Face] Extracting embedding from: {image_path}")
-        
-        # DeepFace returns embeddings as a list of dicts
-        result = DeepFace.represent(img_path=image_path, model_name="Facenet512", enforce_detection=True)
-        
-        if len(result) == 0:
-            print(f"[Face] No face found in image")
+        result = _represent(image_path, enforce_detection=True)
+        if not result:
+            print("[Face] No face found in image")
             return None
-        
-        # Return first face embedding (as numpy array)
-        embedding = np.array(result[0]['embedding'])
-        print(f"[Face] Embedding extracted successfully (512-dim vector)")
+        embedding = np.array(result[0]["embedding"])
+        print("[Face] Embedding extracted successfully (512-dim vector)")
         return embedding
-    
     except Exception as e:
         print(f"[Face] Error extracting embedding: {e}")
         return None
 
-def extract_face_embedding_from_url(image_url):
-    """
-    Download image from URL and extract face embedding
-    
-    Args:
-        image_url: URL or local path to image
-    
-    Returns:
-        numpy array of face embedding, or None
-    """
+
+def _embedding_from_bytes(image_bytes: bytes) -> Optional[np.ndarray]:
+    """Write bytes to a per-worker temp file, extract embedding, clean up."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    tmp_path = tmp.name
+    tmp.close()
     try:
-        # Handle both URLs and local file paths
-        if image_url.startswith('http'):
-            response = requests.get(image_url, timeout=5)
-            image = Image.open(BytesIO(response.content))
-        else:
-            # Local file path
-            image = Image.open(image_url)
-        
-        # Convert to RGB if needed
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        
-        # Save temporarily for deepface
-        temp_path = '/tmp/temp_face.jpg'
-        image.save(temp_path)
-        
-        # Extract embedding
-        result = DeepFace.represent(img_path=temp_path, model_name="Facenet512", enforce_detection=True)
-        
-        if len(result) == 0:
+        if not _prepare_image_file(image_bytes, tmp_path):
             return None
-        
-        embedding = np.array(result[0]['embedding'])
-        return embedding
-    
+        result = _represent(tmp_path, enforce_detection=True)
+        if not result:
+            return None
+        return np.array(result[0]["embedding"])
+    except Exception as e:
+        # Quiet common "no face" case (DeepFace raises ValueError for it).
+        msg = str(e)
+        if "Face could not be detected" in msg:
+            return None
+        print(f"[Face] Embedding error: {msg}")
+        return None
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+def extract_face_embedding_from_url(image_url: str) -> Optional[np.ndarray]:
+    """Fetch (with social-crawler resolution), then embed. Used for ad-hoc calls."""
+    try:
+        if image_url.startswith("http"):
+            data = fetch_image_bytes_with_resolve(image_url)
+            if data is None:
+                return None
+        else:
+            with open(image_url, "rb") as f:
+                data = f.read()
+        return _embedding_from_bytes(data)
     except Exception as e:
         print(f"[Face] Error extracting face from URL {image_url}: {e}")
         return None
 
-def compare_faces(user_embedding, search_embedding, threshold=0.6):
-    """
-    Compare two face embeddings using cosine distance (not Euclidean)
-    
-    Args:
-        user_embedding: numpy array of user's face (512 dims)
-        search_embedding: numpy array of image to compare (512 dims)
-        threshold: distance threshold for matching (lower = stricter)
-    
-    Returns:
-        tuple: (is_match: bool, distance: float)
-        
-    Cosine distance interpretation:
-    - < 0.4: Very likely same person
-    - 0.4-0.6: Probably same person
-    - 0.6+: Different people
-    """
+
+def compare_faces(
+    user_embedding: np.ndarray, search_embedding: np.ndarray, threshold: float = 0.6
+) -> Tuple[bool, float]:
+    """Cosine-distance comparison. Lower threshold is stricter."""
     try:
-        # Normalize embeddings
         user_norm = user_embedding / np.linalg.norm(user_embedding)
         search_norm = search_embedding / np.linalg.norm(search_embedding)
-        
-        # Calculate cosine distance (1 - cosine similarity)
-        cosine_sim = np.dot(user_norm, search_norm)
-        distance = 1 - cosine_sim
-        
-        is_match = distance < threshold
-        return is_match, distance
+        cosine_sim = float(np.dot(user_norm, search_norm))
+        distance = 1.0 - cosine_sim
+        return distance < threshold, distance
     except Exception as e:
         print(f"[Face] Error comparing faces: {e}")
         return False, 1.0
 
-def match_faces(user_embedding, search_results, threshold=0.5):
+
+def _load_bytes(image_source: str) -> Optional[bytes]:
+    """Unified byte loader - handles URLs (with social resolution) and local paths."""
+    try:
+        if image_source.startswith("http"):
+            return fetch_image_bytes_with_resolve(image_source)
+        with open(image_source, "rb") as f:
+            return f.read()
+    except Exception as e:
+        print(f"[Face] Fetch error for {image_source}: {e}")
+        return None
+
+
+def _process_one(
+    idx: int,
+    total: int,
+    user_embedding: np.ndarray,
+    result: Dict,
+    threshold: float,
+) -> Optional[Dict]:
+    image_url = result.get("url", "")
+    title = result.get("title", "Unknown")
+    print(f"[Face Matching] Processing {idx + 1}/{total}: {title[:60]}")
+
+    data = _load_bytes(image_url)
+    if not data:
+        print("  ✗ Could not fetch image")
+        return None
+
+    embedding = _embedding_from_bytes(data)
+    if embedding is None:
+        print("  ✗ No face detected")
+        return None
+
+    is_match, distance = compare_faces(user_embedding, embedding, threshold)
+    similarity = float(1 - (distance / 2))
+    if not is_match:
+        print(f"  ✗ Not a match (distance: {distance:.3f}, needed: < {threshold})")
+        return None
+
+    img_hash = hashlib.sha256(data).hexdigest()
+    print(f"  ✓ MATCH FOUND! Distance: {distance:.3f}, Similarity: {similarity:.1%}")
+    return {
+        "url": image_url,
+        "page_url": result.get("page_url", image_url),
+        "title": title,
+        "source": result.get("source", "Unknown"),
+        "similarity_score": similarity,
+        "distance": float(distance),
+        "image_hash": img_hash,
+    }
+
+
+def match_faces(
+    user_embedding: np.ndarray,
+    search_results: List[Dict],
+    threshold: float = 0.5,
+) -> List[Dict]:
     """
-    Compare user's face against all search results
-    Finds images of THIS SPECIFIC PERSON by comparing face embeddings
-    
-    Args:
-        user_embedding: numpy array of user's face embedding
-        search_results: list of image results with 'url' key
-        threshold: distance threshold for matching
-    
-    Returns:
-        list of matching images sorted by similarity (best first)
+    Compare the user's face against each candidate. I/O (download) and
+    CPU-bound embedding extraction run on a thread pool; DeepFace inference
+    itself is serialized by `_model_lock` to play nice with Keras.
     """
-    matches = []
-    
-    print(f"\n[Face Matching] Starting to match {len(search_results)} images...")
+    total = len(search_results)
+    print(f"\n[Face Matching] Starting to match {total} images with {_MAX_WORKERS} workers...")
     print(f"[Face Matching] Threshold: {threshold} (lower = stricter matching)")
-    
-    for idx, result in enumerate(search_results):
-        try:
-            image_url = result.get('url')
-            image_title = result.get('title', 'Unknown')
-            
-            print(f"[Face Matching] Processing {idx + 1}/{len(search_results)}: {image_title}")
-            
-            # Extract face from search result image
-            search_embedding = extract_face_embedding_from_url(image_url)
-            
-            if search_embedding is None:
-                print(f"  ✗ No face detected")
+
+    matches: List[Dict] = []
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
+        futures = {
+            pool.submit(_process_one, i, total, user_embedding, res, threshold): i
+            for i, res in enumerate(search_results)
+        }
+        for fut in as_completed(futures):
+            try:
+                m = fut.result()
+            except Exception as e:
+                print(f"[Face Matching] Worker error: {e}")
                 continue
-            
-            # Compare faces
-            is_match, distance = compare_faces(user_embedding, search_embedding, threshold)
-            
-            # Normalize similarity to 0-1 range
-            similarity = float(1 - (distance / 2))
-            
-            if is_match:
-                # Get image hash for reporting
-                img_hash = get_image_hash(image_url)
-                
-                match_data = {
-                    'url': image_url,
-                    'page_url': result.get('page_url', image_url),
-                    'title': image_title,
-                    'source': result.get('source', 'Unknown'),
-                    'similarity_score': similarity,
-                    'distance': float(distance),
-                    'image_hash': img_hash
-                }
-                
-                matches.append(match_data)
-                print(f"  ✓ MATCH FOUND! Distance: {distance:.3f}, Similarity: {similarity:.1%}")
-            else:
-                print(f"  ✗ Not a match (distance: {distance:.3f}, needed: < {threshold})")
-        
-        except Exception as e:
-            print(f"  ✗ Error processing image: {e}")
-            continue
-    
-    # Sort by similarity (most similar first)
-    matches.sort(key=lambda x: x['similarity_score'], reverse=True)
-    
+            if m is not None:
+                matches.append(m)
+
+    matches.sort(key=lambda x: x["similarity_score"], reverse=True)
     print(f"\n[Face Matching] Complete! Found {len(matches)} matching images\n")
     return matches
 
-def get_image_hash(image_url):
-    """
-    Download image and compute SHA256 hash
-    Useful for reporting to Google
-    
-    Args:
-        image_url: URL or local path to image
-    
-    Returns:
-        SHA256 hash of image as hex string
-    """
+
+def get_image_hash(image_url: str) -> Optional[str]:
+    """Kept for backwards compatibility; new code reuses bytes directly."""
     try:
-        if image_url.startswith('http'):
-            response = requests.get(image_url, timeout=5)
-            image_data = response.content
-        else:
-            # Local file
-            with open(image_url, 'rb') as f:
-                image_data = f.read()
-        
-        image_hash = hashlib.sha256(image_data).hexdigest()
-        return image_hash
+        data = _load_bytes(image_url)
+        if not data:
+            return None
+        return hashlib.sha256(data).hexdigest()
     except Exception as e:
         print(f"[Face] Error hashing image: {e}")
         return None
