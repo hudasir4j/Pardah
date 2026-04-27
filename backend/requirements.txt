@@ -14,3 +14,4 @@ opencv-python>=4.5.5,<4.10
 bing-image-downloader==1.1.2
 # The `duckduckgo_search` package has been renamed to `ddgs` upstream.
 ddgs>=9.0.0
+gunicorn==21.2.0
