@@ -4,7 +4,7 @@ import './App.css';
 import flowerMotifSrc from './Flower.svg';
 
 const PARDAH_THEME_STORAGE_KEY = 'pardah-theme';
-const BACKEND_URL = 'http://localhost:5000';
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
 
 const getHostFromUrl = (urlString) => {
   try {
@@ -523,7 +523,7 @@ const ReviewPage = ({
                   >
                     <img
                       src={photo.url}
-                      alt={`Photo ${currentPhotoIndex + index + 1}`}
+                      alt={`Result ${currentPhotoIndex + index + 1}`}
                       className="stack-image"
                     />
                   </div>
@@ -542,7 +542,7 @@ const ReviewPage = ({
                   <div className="photo-card">
                     <img
                       src={currentPhoto.url}
-                      alt={`Photo ${currentPhotoIndex + 1}`}
+                      alt={`Result ${currentPhotoIndex + 1}`}
                       className="photo-image"
                     />
                     <div className="photo-info">
