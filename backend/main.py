@@ -359,11 +359,40 @@ def verify_match():
         return jsonify({'error': str(e)}), 500
 
 
+def _find_free_port(preferred: int) -> int:
+    """Return `preferred` if available, otherwise an OS-assigned free port.
+
+    macOS ships AirPlay Receiver on :5000 and stale Flask processes are easy
+    to leave behind, so we fall back instead of crashing.
+    """
+    import socket
+
+    def _is_free(port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("127.0.0.1", port))
+                return True
+            except OSError:
+                return False
+
+    if _is_free(preferred):
+        return preferred
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 if __name__ == '__main__':
+    requested_port = get_env_int("PORT", 5000)
+    port = _find_free_port(requested_port)
+    if port != requested_port:
+        print(f"[Startup] Port {requested_port} in use; falling back to {port}")
     print("=" * 60)
     print("Starting Reclaim Backend Server")
     print("=" * 60)
-    print("Server running on: http://localhost:5000")
-    print("Health check: http://localhost:5000/health")
+    print(f"Server running on: http://localhost:{port}")
+    print(f"Health check: http://localhost:{port}/health")
     print("=" * 60 + "\n")
-    app.run(debug=False, port=5000)
+    app.run(debug=False, port=port)
