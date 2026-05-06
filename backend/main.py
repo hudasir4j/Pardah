@@ -33,7 +33,16 @@ from report_generator import generate_report_link, build_removal_plan
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+
+# Comma-separated list of allowed origins, e.g.
+#   "https://pardah.onrender.com,http://localhost:3000"
+# Defaults to "*" so local dev keeps working out of the box.
+_cors_origins_env = os.environ.get("CORS_ALLOWED_ORIGINS", "*").strip()
+if _cors_origins_env == "*" or not _cors_origins_env:
+    CORS(app)
+else:
+    _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+    CORS(app, resources={r"/*": {"origins": _cors_origins}})
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
