@@ -1,12 +1,25 @@
 """
 Startup: ensure TensorFlow 2.15 + Keras is available before importing deepface.
 The standalone 'keras' package (pulled in by deepface) can conflict; we load tensorflow.keras first.
+
+Memory note: this process runs TensorFlow + DeepFace + OpenCV in a single
+gunicorn worker, which can easily exceed 1 GB RSS under load. To keep
+small Render / Fly tiers viable we (a) clamp TF's thread pools to 1 each
+before TF is imported, (b) suppress TF logs, and (c) explicitly disable
+GPU lookups. These env vars MUST be set before `import tensorflow`.
 """
+import gc
 import sys
 import os
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "1")
+os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
+
 try:
-    import tensorflow as tf  # noqa: F401
-    # Force tensorflow.keras submodule to load so deepface's "from tensorflow.keras..." works
+    import tensorflow as tf
     import tensorflow.keras  # noqa: F401
 except ImportError:
     print("TensorFlow/Keras not available.", file=sys.stderr)
@@ -14,6 +27,14 @@ except ImportError:
     print("  pip3 install --user \"tensorflow>=2.15.0,<2.16\"", file=sys.stderr)
     print("Or use a venv: python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt", file=sys.stderr)
     sys.exit(1)
+
+# Belt-and-braces: must be called before any TF op runs. Wrapped in try
+# because some TF versions raise once the runtime is initialized.
+try:
+    tf.config.threading.set_intra_op_parallelism_threads(1)
+    tf.config.threading.set_inter_op_parallelism_threads(1)
+except Exception as _tf_thread_err:
+    print(f"[Startup] Could not set TF thread limits: {_tf_thread_err}")
 
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,7 +48,7 @@ from werkzeug.utils import secure_filename
 from search_images import search_images_bing
 from search_google_images import search_images_google
 from search_duckduckgo_images import search_images_duckduckgo
-from face_recognition import extract_face_embedding, match_faces
+from face_recognition import extract_face_embedding, match_faces, DEFAULT_MATCH_THRESHOLD
 from report_generator import generate_report_link, build_removal_plan
 
 load_dotenv()
@@ -44,10 +65,11 @@ else:
     _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
     CORS(app, resources={r"/*": {"origins": _cors_origins}})
 
-# Configuration
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-MAX_FILE_SIZE = 16 * 1024 * 1024  # 16MB
+# Cap uploads to 8 MB. Anything larger gets downscaled aggressively before
+# embedding anyway, so the larger original just wastes RAM during decode.
+MAX_FILE_SIZE = 8 * 1024 * 1024
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
@@ -136,6 +158,7 @@ def upload_image():
     Extract face embedding and search for images matching those terms across
     Bing, Google (via SerpApi), and DuckDuckGo - all fanned out in parallel.
     """
+    filepath = None
     try:
         if 'file' not in request.files:
             return jsonify({'error': 'No file provided'}), 400
@@ -164,10 +187,13 @@ def upload_image():
             return jsonify({'error': 'No face detected in image'}), 400
         print("[Upload] Face embedding extracted successfully")
 
-        images_per_source = get_env_int("IMAGES_PER_SOURCE", 3)
+        # Defaults are tuned for ~512 MB-1 GB hosts. Override via env vars
+        # (IMAGES_PER_SOURCE, MAX_SEARCH_QUERIES, MAX_CANDIDATE_IMAGES,
+        # MAX_MATCHED_IMAGES) when you have more headroom.
+        images_per_source = get_env_int("IMAGES_PER_SOURCE", 2)
         max_search_queries = get_env_int("MAX_SEARCH_QUERIES", 2)
-        max_candidate_images = get_env_int("MAX_CANDIDATE_IMAGES", 15)
-        max_matched_images = get_env_int("MAX_MATCHED_IMAGES", 8)
+        max_candidate_images = get_env_int("MAX_CANDIDATE_IMAGES", 6)
+        max_matched_images = get_env_int("MAX_MATCHED_IMAGES", 5)
 
         # Broader query set: users want results from every major social platform,
         # not just "name" alone. Instagram/Facebook/TikTok queries surface
@@ -201,7 +227,11 @@ def upload_image():
             f"\n[Upload] Running {len(fan_out_jobs)} search jobs in parallel "
             f"({len(_SEARCH_SOURCES)} sources x {len(search_queries)} queries)"
         )
-        with ThreadPoolExecutor(max_workers=min(12, max(2, len(fan_out_jobs)))) as pool:
+        # Cap concurrent searches to keep peak thread/socket count down on
+        # small instances. Each in-flight search holds an HTTP buffer and
+        # an HTML parser tree in RAM.
+        _search_workers = get_env_int("SEARCH_FANOUT_WORKERS", 4)
+        with ThreadPoolExecutor(max_workers=min(_search_workers, max(2, len(fan_out_jobs)))) as pool:
             futures = [
                 pool.submit(_run_source, name, fn, q, images_per_source)
                 for name, fn, q in fan_out_jobs
@@ -253,7 +283,7 @@ def upload_image():
         matched_images = match_faces(
             user_embedding=user_embedding,
             search_results=unique_results,
-            threshold=0.5,
+            threshold=DEFAULT_MATCH_THRESHOLD,
         )
 
         print(f"[Upload] Found {len(matched_images)} matching images")
@@ -305,6 +335,16 @@ def upload_image():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+    finally:
+        # Always clean up the uploaded file (free disk) and force a GC pass
+        # so per-request decoded image buffers don't linger in the worker's
+        # heap between requests.
+        if filepath:
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
+        gc.collect()
 
 
 @app.route('/report', methods=['POST'])
