@@ -1,40 +1,18 @@
 """
-Startup: ensure TensorFlow 2.15 + Keras is available before importing deepface.
-The standalone 'keras' package (pulled in by deepface) can conflict; we load tensorflow.keras first.
+Pardah backend entrypoint.
 
-Memory note: this process runs TensorFlow + DeepFace + OpenCV in a single
-gunicorn worker, which can easily exceed 1 GB RSS under load. To keep
-small Render / Fly tiers viable we (a) clamp TF's thread pools to 1 each
-before TF is imported, (b) suppress TF logs, and (c) explicitly disable
-GPU lookups. These env vars MUST be set before `import tensorflow`.
+Face recognition runs via OpenCV's built-in YuNet + SFace ONNX models
+(see backend/face_recognition.py). We intentionally do NOT depend on
+TensorFlow or DeepFace anymore so the whole worker fits in <512 MB RSS.
 """
 import gc
-import sys
 import os
 
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
-os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "1")
-os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
+# Single-threaded OpenCV is plenty for our serialized inference path and
+# avoids cv2 spawning a CPU-count-sized worker pool that wastes RAM.
 os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
-
-try:
-    import tensorflow as tf
-    import tensorflow.keras  # noqa: F401
-except ImportError:
-    print("TensorFlow/Keras not available.", file=sys.stderr)
-    print("From the backend folder, run:", file=sys.stderr)
-    print("  pip3 install --user \"tensorflow>=2.15.0,<2.16\"", file=sys.stderr)
-    print("Or use a venv: python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt", file=sys.stderr)
-    sys.exit(1)
-
-# Belt-and-braces: must be called before any TF op runs. Wrapped in try
-# because some TF versions raise once the runtime is initialized.
-try:
-    tf.config.threading.set_intra_op_parallelism_threads(1)
-    tf.config.threading.set_inter_op_parallelism_threads(1)
-except Exception as _tf_thread_err:
-    print(f"[Startup] Could not set TF thread limits: {_tf_thread_err}")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed

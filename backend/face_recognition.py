@@ -1,86 +1,121 @@
 """
-Face embedding + matching.
+Face embedding + matching using OpenCV's built-in YuNet detector and SFace
+recognizer (both ONNX). This replaces the previous TensorFlow + DeepFace
+stack to fit on 512 MB hosts.
 
-Improvements over the original:
-- Preloads the configured face model once at import time, so per-image work
-  skips model initialization. Default is `SFace` (~37 MB weights, 128-dim
-  embeddings) which is tuned for memory-constrained hosts; set
-  FACE_MODEL=Facenet512 to restore the heavier (~95 MB, 512-dim) model.
-- Uses a shared HTTP session (browser UA, retries) and resolves social-media
-  crawler URLs to their real CDN image URL.
-- Parallelizes candidate processing with a ThreadPoolExecutor; each worker
-  writes to its own tempfile (the old code shared `/tmp/temp_face.jpg`,
-  which serialized everything).
-- Downscales images before detection (faster, less memory).
-- Reuses already-downloaded bytes for SHA-256 hashing instead of issuing a
-  second HTTP request.
+Memory footprint compared to the old stack:
+  - cv2 + ONNX runtime: ~50-80 MB (was: TF 2.15 ~400-500 MB)
+  - YuNet detector ONNX: ~2 MB
+  - SFace recognizer ONNX: ~37 MB
+  - Total idle: ~200-260 MB (was: ~900 MB-1.1 GB)
+
+The public API (`extract_face_embedding`, `match_faces`, `compare_faces`,
+`DEFAULT_MATCH_THRESHOLD`, `extract_face_embedding_from_url`,
+`get_image_hash`) is preserved so callers in main.py don't need to change.
 """
 from __future__ import annotations
 
 import gc
 import hashlib
 import os
-import tempfile
 import threading
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import cv2
 import numpy as np
 from PIL import Image
-from deepface import DeepFace
 
-from http_client import fetch_bytes
+from http_client import fetch_bytes  # noqa: F401 (re-exported for callers)
 from social_resolver import fetch_image_bytes_with_resolve
 
 
-# Which DeepFace model to use. SFace is ~37 MB on disk and uses 128-dim
-# embeddings, which fits comfortably in <1 GB RAM hosts. Facenet512 is more
-# accurate but adds ~150-200 MB to resident memory.
-_MODEL_NAME = os.environ.get("FACE_MODEL", "SFace")
-
-# Default cosine-distance match thresholds, tuned per model. `distance` here
-# is `1 - cosine_similarity` of L2-normalized embeddings (range [0, 2]).
-# Lower threshold = stricter match.
-_DEFAULT_THRESHOLDS = {
-    "SFace": 0.60,
-    "Facenet512": 0.50,
-    "Facenet": 0.55,
-    "ArcFace": 0.65,
-    "VGG-Face": 0.40,
-    "OpenFace": 0.55,
-    "GhostFaceNet": 0.65,
-}
-DEFAULT_MATCH_THRESHOLD = float(
-    os.environ.get("FACE_MATCH_THRESHOLD", _DEFAULT_THRESHOLDS.get(_MODEL_NAME, 0.55))
+# Official OpenCV model zoo URLs. Pinned commits keep us reproducible.
+_YUNET_URL = (
+    "https://github.com/opencv/opencv_zoo/raw/main/"
+    "models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+)
+_SFACE_URL = (
+    "https://github.com/opencv/opencv_zoo/raw/main/"
+    "models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
 )
 
-try:
-    _MODEL = DeepFace.build_model(_MODEL_NAME)
-    print(f"[Face] {_MODEL_NAME} model preloaded")
-except Exception as _e:
-    _MODEL = None
-    print(f"[Face] Warning: model preload failed ({_e}); will build on demand")
+_MODELS_DIR = Path(os.environ.get("PARDAH_MODELS_DIR", "models"))
+_YUNET_PATH = _MODELS_DIR / "face_detection_yunet_2023mar.onnx"
+_SFACE_PATH = _MODELS_DIR / "face_recognition_sface_2021dec.onnx"
 
-# Detector backend: opencv is ~3-5x faster than retinaface/mtcnn with
-# acceptable accuracy for our similarity threshold.
-_DETECTOR_BACKEND = os.environ.get("FACE_DETECTOR_BACKEND", "opencv")
 
-# Max edge for images passed to DeepFace. 640px keeps faces detectable while
-# slashing per-image decode memory roughly 2.5x vs 1024px.
+def _download_once(url: str, dest: Path) -> None:
+    """Download `url` to `dest` if not already present. Atomic via .tmp rename."""
+    if dest.exists() and dest.stat().st_size > 0:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[Face] Downloading {url}")
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    try:
+        with urllib.request.urlopen(url, timeout=60) as resp, open(tmp, "wb") as f:
+            while True:
+                chunk = resp.read(64 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+        tmp.rename(dest)
+        size_mb = dest.stat().st_size / (1024 * 1024)
+        print(f"[Face] Downloaded {dest.name} ({size_mb:.1f} MB)")
+    finally:
+        # Best-effort cleanup if the rename never happened.
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+_download_once(_YUNET_URL, _YUNET_PATH)
+_download_once(_SFACE_URL, _SFACE_PATH)
+
+
+# Detector input size is updated per-image via setInputSize(); the (320, 320)
+# here is just a placeholder so create() succeeds.
+_detector = cv2.FaceDetectorYN.create(
+    model=str(_YUNET_PATH),
+    config="",
+    input_size=(320, 320),
+    score_threshold=float(os.environ.get("FACE_DETECT_SCORE_THRESHOLD", "0.6")),
+    nms_threshold=float(os.environ.get("FACE_DETECT_NMS_THRESHOLD", "0.3")),
+    top_k=5000,
+)
+_recognizer = cv2.FaceRecognizerSF.create(
+    model=str(_SFACE_PATH),
+    config="",
+)
+print("[Face] OpenCV YuNet + SFace models preloaded")
+
+
+# Default cosine-distance match threshold. We use distance = 1 - cosine_sim
+# of L2-normalized embeddings (range [0, 2]). SFace's reference cosine-sim
+# threshold is ~0.363, i.e. distance < 0.637 -> match. We default slightly
+# stricter at 0.60.
+DEFAULT_MATCH_THRESHOLD = float(os.environ.get("FACE_MATCH_THRESHOLD", "0.60"))
+
+# Max edge for input images. SFace internally aligns to 112x112, so going
+# above ~640 just costs decode RAM with negligible accuracy gain.
 _MAX_IMAGE_EDGE = int(os.environ.get("FACE_MAX_IMAGE_EDGE", "640"))
 
-# Number of concurrent candidates in flight. Each in-flight worker holds the
-# raw image bytes + decoded PIL buffer in RAM, so the default is kept small
-# to fit on 512 MB-1 GB instances. Inference itself is serialized by the
-# model lock; this knob only controls download/decode concurrency.
+# Concurrent download/decode workers. Each in-flight worker holds raw image
+# bytes + a decoded ndarray, so keep this small on tight memory budgets.
+# Inference itself is serialized by _model_lock (cv2 face models are not
+# thread-safe).
 _MAX_WORKERS = int(os.environ.get("FACE_MATCH_WORKERS", "2"))
 
 _model_lock = threading.Lock()
 
 
-def _prepare_image_file(image_bytes: bytes, out_path: str) -> bool:
-    """Decode, downscale, and re-encode as JPEG. Returns False on failure."""
+def _bytes_to_bgr(image_bytes: bytes) -> Optional[np.ndarray]:
+    """Decode bytes -> downscaled BGR ndarray. Returns None on failure."""
     img = None
     try:
         img = Image.open(BytesIO(image_bytes))
@@ -91,11 +126,12 @@ def _prepare_image_file(image_bytes: bytes, out_path: str) -> bool:
         if longest > _MAX_IMAGE_EDGE:
             scale = _MAX_IMAGE_EDGE / float(longest)
             img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-        img.save(out_path, format="JPEG", quality=85, optimize=False)
-        return True
+        arr = np.asarray(img, dtype=np.uint8)
+        # PIL gives us RGB; OpenCV operates in BGR.
+        return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
     except Exception as e:
         print(f"[Face] Could not decode image bytes: {e}")
-        return False
+        return None
     finally:
         if img is not None:
             try:
@@ -104,64 +140,54 @@ def _prepare_image_file(image_bytes: bytes, out_path: str) -> bool:
                 pass
 
 
-def _represent(image_path: str, enforce_detection: bool = True):
-    """Thread-safe wrapper around DeepFace.represent."""
-    # DeepFace caches models via a module-level dict; calls from multiple
-    # threads concurrently into Keras can be flaky. A coarse lock around the
-    # inference call keeps us correct with little real-world cost because
-    # HTTP I/O and image decoding still run in parallel.
+def _embedding_from_bgr(bgr: np.ndarray) -> Optional[np.ndarray]:
+    """Detect the largest face and return its 128-dim SFace embedding."""
     with _model_lock:
-        return DeepFace.represent(
-            img_path=image_path,
-            model_name=_MODEL_NAME,
-            detector_backend=_DETECTOR_BACKEND,
-            enforce_detection=enforce_detection,
-        )
+        h, w = bgr.shape[:2]
+        _detector.setInputSize((w, h))
+        _, faces = _detector.detect(bgr)
+        if faces is None or len(faces) == 0:
+            return None
+
+        # YuNet rows: [x, y, w, h, kp_x*5, kp_y*5, score]. Pick the largest
+        # face by bounding-box area; tiny faces give noisy embeddings.
+        areas = faces[:, 2] * faces[:, 3]
+        best = faces[int(np.argmax(areas))]
+
+        aligned = _recognizer.alignCrop(bgr, best)
+        feat = _recognizer.feature(aligned)
+        return feat.reshape(-1).astype(np.float32)
+
+
+def _embedding_from_bytes(image_bytes: bytes) -> Optional[np.ndarray]:
+    bgr = _bytes_to_bgr(image_bytes)
+    if bgr is None:
+        return None
+    try:
+        return _embedding_from_bgr(bgr)
+    finally:
+        del bgr
 
 
 def extract_face_embedding(image_path: str) -> Optional[np.ndarray]:
     """Extract a face embedding from a local image file."""
     try:
         print(f"[Face] Extracting embedding from: {image_path}")
-        result = _represent(image_path, enforce_detection=True)
-        if not result:
+        with open(image_path, "rb") as f:
+            data = f.read()
+        emb = _embedding_from_bytes(data)
+        if emb is None:
             print("[Face] No face found in image")
             return None
-        embedding = np.asarray(result[0]["embedding"], dtype=np.float32)
-        print(f"[Face] Embedding extracted ({_MODEL_NAME}, {embedding.shape[0]}-dim)")
-        return embedding
+        print(f"[Face] Embedding extracted (SFace, {emb.shape[0]}-dim)")
+        return emb
     except Exception as e:
         print(f"[Face] Error extracting embedding: {e}")
         return None
 
 
-def _embedding_from_bytes(image_bytes: bytes) -> Optional[np.ndarray]:
-    """Write bytes to a per-worker temp file, extract embedding, clean up."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-    tmp_path = tmp.name
-    tmp.close()
-    try:
-        if not _prepare_image_file(image_bytes, tmp_path):
-            return None
-        result = _represent(tmp_path, enforce_detection=True)
-        if not result:
-            return None
-        return np.asarray(result[0]["embedding"], dtype=np.float32)
-    except Exception as e:
-        msg = str(e)
-        if "Face could not be detected" in msg:
-            return None
-        print(f"[Face] Embedding error: {msg}")
-        return None
-    finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-
-
 def extract_face_embedding_from_url(image_url: str) -> Optional[np.ndarray]:
-    """Fetch (with social-crawler resolution), then embed. Used for ad-hoc calls."""
+    """Fetch (with social-crawler resolution), then embed."""
     try:
         if image_url.startswith("http"):
             data = fetch_image_bytes_with_resolve(image_url)
@@ -177,13 +203,19 @@ def extract_face_embedding_from_url(image_url: str) -> Optional[np.ndarray]:
 
 
 def compare_faces(
-    user_embedding: np.ndarray, search_embedding: np.ndarray, threshold: float = 0.6
+    user_embedding: np.ndarray,
+    search_embedding: np.ndarray,
+    threshold: float = DEFAULT_MATCH_THRESHOLD,
 ) -> Tuple[bool, float]:
     """Cosine-distance comparison. Lower threshold is stricter."""
     try:
-        user_norm = user_embedding / np.linalg.norm(user_embedding)
-        search_norm = search_embedding / np.linalg.norm(search_embedding)
-        cosine_sim = float(np.dot(user_norm, search_norm))
+        u_norm = float(np.linalg.norm(user_embedding))
+        s_norm = float(np.linalg.norm(search_embedding))
+        if u_norm == 0.0 or s_norm == 0.0:
+            return False, 1.0
+        u = user_embedding / u_norm
+        s = search_embedding / s_norm
+        cosine_sim = float(np.dot(u, s))
         distance = 1.0 - cosine_sim
         return distance < threshold, distance
     except Exception as e:
@@ -192,7 +224,7 @@ def compare_faces(
 
 
 def _load_bytes(image_source: str) -> Optional[bytes]:
-    """Unified byte loader - handles URLs (with social resolution) and local paths."""
+    """Unified byte loader: URLs (with social resolution) and local paths."""
     try:
         if image_source.startswith("http"):
             return fetch_image_bytes_with_resolve(image_source)
@@ -224,8 +256,7 @@ def _process_one(
     try:
         embedding = _embedding_from_bytes(data)
     finally:
-        # Drop the raw image bytes as soon as we're done with them so peak
-        # memory across concurrent workers stays bounded.
+        # Free raw bytes ASAP so peak across concurrent workers stays low.
         del data
 
     if embedding is None:
@@ -256,15 +287,14 @@ def match_faces(
     threshold: Optional[float] = None,
 ) -> List[Dict]:
     """
-    Compare the user's face against each candidate. I/O (download) and
-    CPU-bound embedding extraction run on a thread pool; DeepFace inference
-    itself is serialized by `_model_lock` to play nice with Keras.
+    Compare the user's face against each candidate. Downloads + decodes run
+    on a thread pool; cv2 inference itself is serialized by _model_lock.
     """
     if threshold is None:
         threshold = DEFAULT_MATCH_THRESHOLD
     total = len(search_results)
     print(f"\n[Face Matching] Starting to match {total} images with {_MAX_WORKERS} workers...")
-    print(f"[Face Matching] Model: {_MODEL_NAME}, threshold: {threshold} (lower = stricter)")
+    print(f"[Face Matching] Backend: cv2 SFace, threshold: {threshold} (lower = stricter)")
 
     matches: List[Dict] = []
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:

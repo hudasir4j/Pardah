@@ -1,13 +1,13 @@
 flask==2.3.0
 flask-cors==6.0.1
+gunicorn==21.2.0
 python-dotenv==1.0.0
 requests==2.31.0
 pillow==11.1.0
-# TensorFlow 2.15.x requires numpy<2; opencv 4.10+ requires numpy>=2 on Py3.9+, so we pin both
 numpy>=1.23.5,<2.0.0
-tensorflow>=2.15.0,<2.16
-deepface==0.0.95
-# opencv <4.10 works with numpy 1.x (TF 2.15)
+# Face recognition runs on OpenCV's built-in YuNet (detector) + SFace
+# (recognizer) ONNX models. Both are bundled in opencv-python >= 4.5.4.
+# We avoid TensorFlow / DeepFace entirely to keep the worker under 512 MB.
 opencv-python>=4.5.5,<4.10
 # bing-image-downloader is no longer required at runtime (we scrape the async
 # endpoint directly in search_images.py), but kept as a safety fallback.
