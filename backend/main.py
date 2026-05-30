@@ -34,13 +34,31 @@ load_dotenv()
 app = Flask(__name__)
 
 # Comma-separated list of allowed origins, e.g.
-#   "https://pardah.onrender.com,http://localhost:3000"
+#   "https://pardah.vercel.app,http://localhost:3000"
 # Defaults to "*" so local dev keeps working out of the box.
+#
+# Common gotchas this normalization handles:
+#   - trailing slashes ("https://pardah.vercel.app/") - browsers send the
+#     Origin header WITHOUT a trailing slash, so the configured value would
+#     never match.
+#   - stray whitespace from copy/paste.
+def _normalize_origin(o: str) -> str:
+    o = o.strip()
+    if o.endswith("/"):
+        o = o.rstrip("/")
+    return o
+
+
 _cors_origins_env = os.environ.get("CORS_ALLOWED_ORIGINS", "*").strip()
 if _cors_origins_env == "*" or not _cors_origins_env:
+    print("[CORS] Allowed origins: * (any)")
     CORS(app)
 else:
-    _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+    _cors_origins = [
+        n for n in (_normalize_origin(o) for o in _cors_origins_env.split(","))
+        if n
+    ]
+    print(f"[CORS] Allowed origins: {_cors_origins}")
     CORS(app, resources={r"/*": {"origins": _cors_origins}})
 
 UPLOAD_FOLDER = 'uploads'
