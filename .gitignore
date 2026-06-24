@@ -10,3 +10,6 @@ env/
 .pytest_cache/
 backend/models/
 backend/uploads/
+kahf-backend/kahf-temp/
+kahf-backend/venv/
+kahf-app/.next/
