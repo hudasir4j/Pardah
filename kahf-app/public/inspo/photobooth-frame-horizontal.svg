@@ -1,0 +1,37 @@
+<svg width="1200" height="390" viewBox="0 0 1200 390" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="18" y="18" width="1164" height="354" rx="10" fill="#0F0F0D"/>
+  <rect x="34" y="34" width="1132" height="322" rx="6" stroke="rgba(255,255,255,0.72)" stroke-width="2"/>
+  <g opacity="0.78" stroke="#F7F1E7" stroke-width="2">
+    <rect x="56" y="52" width="20" height="12" rx="2"/>
+    <rect x="56" y="80" width="20" height="12" rx="2"/>
+    <rect x="56" y="108" width="20" height="12" rx="2"/>
+    <rect x="56" y="136" width="20" height="12" rx="2"/>
+    <rect x="56" y="164" width="20" height="12" rx="2"/>
+    <rect x="56" y="192" width="20" height="12" rx="2"/>
+    <rect x="56" y="220" width="20" height="12" rx="2"/>
+    <rect x="56" y="248" width="20" height="12" rx="2"/>
+    <rect x="56" y="276" width="20" height="12" rx="2"/>
+    <rect x="56" y="304" width="20" height="12" rx="2"/>
+    <rect x="1124" y="52" width="20" height="12" rx="2"/>
+    <rect x="1124" y="80" width="20" height="12" rx="2"/>
+    <rect x="1124" y="108" width="20" height="12" rx="2"/>
+    <rect x="1124" y="136" width="20" height="12" rx="2"/>
+    <rect x="1124" y="164" width="20" height="12" rx="2"/>
+    <rect x="1124" y="192" width="20" height="12" rx="2"/>
+    <rect x="1124" y="220" width="20" height="12" rx="2"/>
+    <rect x="1124" y="248" width="20" height="12" rx="2"/>
+    <rect x="1124" y="276" width="20" height="12" rx="2"/>
+    <rect x="1124" y="304" width="20" height="12" rx="2"/>
+  </g>
+  <g stroke="#F7F1E7" stroke-width="2.5">
+    <rect x="102" y="46" width="184" height="298" rx="3"/>
+    <rect x="299" y="46" width="184" height="298" rx="3"/>
+    <rect x="496" y="46" width="184" height="298" rx="3"/>
+    <rect x="693" y="46" width="184" height="298" rx="3"/>
+    <rect x="890" y="46" width="184" height="298" rx="3"/>
+  </g>
+  <g opacity="0.3">
+    <path d="M90 42H1080" stroke="#D8B26B" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 18"/>
+    <path d="M90 348H1080" stroke="#D8B26B" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 18"/>
+  </g>
+</svg>

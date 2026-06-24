@@ -8,16 +8,14 @@ interface DiscoveryGridProps {
 export function DiscoveryGrid({ results }: DiscoveryGridProps) {
   if (results.length === 0) {
     return (
-      <div className="tape-poster border-2 border-kahf-tobago bg-kahf-vanilla px-8 py-20 text-center">
-        <p className="font-arabic text-4xl text-kahf-rose" lang="ar" dir="rtl">
-          لا شيء
-        </p>
-        <h2 className="headline-display mt-3 text-2xl text-kahf-tobago">
+      <div className="tape-poster rounded-sm border border-kahf-coffee/10 bg-kahf-almond/50 px-8 py-20 text-center">
+        <p className="headline-script text-4xl text-kahf-berkeley">nothing here.</p>
+        <h2 className="headline-display mt-3 text-2xl text-kahf-coffee">
           No high-confidence matches
         </h2>
-        <p className="mx-auto mt-4 max-w-md font-sans text-sm leading-relaxed text-kahf-tobago/65">
-          Nothing passed our 85% threshold. That can be good news — or try
-          reference photos with more varied angles.
+        <p className="body-sans mx-auto mt-4 max-w-md text-sm leading-relaxed text-kahf-coffee/60">
+          We didn&apos;t find anything above our 85% threshold. That can be good news —
+          or try reference photos with more varied angles, from before and after hijab.
         </p>
       </div>
     );
@@ -25,7 +23,7 @@ export function DiscoveryGrid({ results }: DiscoveryGridProps) {
 
   return (
     <section>
-      <p className="mb-8 font-sans text-sm font-semibold text-kahf-tobago/60">
+      <p className="body-sans mb-8 text-sm text-kahf-mountain">
         {results.length} result{results.length === 1 ? "" : "s"} passed verification
       </p>
 

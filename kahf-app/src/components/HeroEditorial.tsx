@@ -1,151 +1,133 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { ScrapbookPolaroid, type ScrapbookPose } from "@/components/ScrapbookPolaroid";
 
 const FLOAT_LABELS = [
-  "قبل الحجاب",
-  "خصوصية",
-  "حريم",
-  "memory only",
-  "wiped clean",
+  "find old photos",
+  "before hijab",
+  "verify matches",
+  "track where they live",
+  "prepare takedowns",
+  "bring them back to you",
+];
+
+const POLAROID_LAYOUT = [
+  {
+    src: "/inspo/kahf-hero.png",
+    right: "1rem",
+    top: "0.5rem",
+    width: 160,
+    holdMs: 1000,
+    startDelayMs: 0,
+    poses: [
+      { x: 0, y: 0, rotate: -6, scale: 1 },
+      { x: -2, y: -4, rotate: -4.5, scale: 1 },
+      { x: 3, y: 2, rotate: -7.2, scale: 1 },
+      { x: -1, y: -3, rotate: -5.8, scale: 1.01 },
+      { x: 2, y: 3, rotate: -6.8, scale: 1 },
+    ] satisfies ScrapbookPose[],
+  },
+  {
+    src: "/inspo/kahf-hero-2.png",
+    right: "11.5rem",
+    top: "4.5rem",
+    width: 160,
+    holdMs: 1400,
+    startDelayMs: 400,
+    poses: [
+      { x: 0, y: 0, rotate: 5, scale: 1 },
+      { x: 3, y: -3, rotate: 6.5, scale: 1 },
+      { x: -2, y: 2, rotate: 3.8, scale: 1.01 },
+      { x: 2, y: -2, rotate: 5.6, scale: 1 },
+      { x: -3, y: 3, rotate: 4.2, scale: 1 },
+    ] satisfies ScrapbookPose[],
+  },
+  {
+    src: "/inspo/kahf-hero-3.png",
+    right: "2rem",
+    top: "12.75rem",
+    width: 160,
+    holdMs: 1350,
+    startDelayMs: 800,
+    poses: [
+      { x: 0, y: 0, rotate: -3, scale: 1 },
+      { x: -3, y: 2, rotate: -1.5, scale: 1 },
+      { x: 2, y: -3, rotate: -4.2, scale: 1.01 },
+      { x: -2, y: -2, rotate: -2.8, scale: 1 },
+      { x: 3, y: 2, rotate: -3.6, scale: 1 },
+    ] satisfies ScrapbookPose[],
+  },
 ];
 
 export function HeroEditorial() {
   return (
-    <section className="relative overflow-hidden bg-kahf-fantasy">
-      {/* Solid editorial block — no gradient */}
-      <div
-        className="absolute right-0 top-0 hidden h-full w-[38%] bg-kahf-rose lg:block"
-        aria-hidden
-      />
-      <div
-        className="absolute right-0 top-0 h-48 w-full bg-kahf-tobago lg:hidden"
-        aria-hidden
-      />
+    <>
+      <section className="relative w-full overflow-hidden pb-10">
+        <div className="hero-mountain-wash" aria-hidden />
 
-      <div className="relative mx-auto max-w-6xl px-6 pb-4 pt-10 lg:pt-14">
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8 flex items-center gap-4"
-        >
-          <span className="font-arabic text-3xl font-bold text-kahf-tobago" lang="ar" dir="rtl">
-            كهف
-          </span>
-          <span className="h-8 w-0.5 bg-kahf-rose" aria-hidden />
-          <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-kahf-tobago">
-            Digital footprint discovery
-          </p>
-        </motion.div>
-
-        <div className="relative grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
-          <div className="relative z-10">
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="font-arabic mb-2 text-lg text-kahf-rose lg:text-xl"
-              lang="ar"
-              dir="rtl"
-            >
-              قبل الحجاب
-            </motion.p>
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.05 }}
-              className="headline-display text-[clamp(2.8rem,10vw,6.5rem)] text-kahf-tobago"
-            >
-              PHOTOS WITHOUT
-            </motion.h1>
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="headline-display -mt-1 text-[clamp(2.8rem,10vw,6.5rem)] text-kahf-tobago"
-            >
-              HIJAB STILL
-            </motion.h1>
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
-              className="headline-display -mt-1 text-[clamp(2.8rem,10vw,6.5rem)] text-kahf-rose"
-            >
-              EXIST ONLINE
-            </motion.h1>
-            <div className="relative mt-4 flex flex-wrap items-baseline gap-x-4">
-              <motion.span
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.22 }}
-                className="headline-script text-[clamp(2.4rem,7vw,4.5rem)] text-kahf-tobago"
+        <div className="relative z-10 mx-auto max-w-6xl px-6 pb-4 pt-18 lg:pt-24">
+          <div className="relative grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-8">
+            <div className="relative z-10 lg:max-w-[34rem]">
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 }}
+                className="headline-display text-[clamp(3.4rem,10vw,6.8rem)] text-kahf-coffee"
               >
-                find them.
-              </motion.span>
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.3 }}
-                className="max-w-md font-sans text-base leading-relaxed text-kahf-tobago/80"
-              >
-                Upload photos of you in hijab now. We search for older images of you
-                without it — so you can reclaim your narrative, privately.
-              </motion.p>
-            </div>
-          </div>
-
-          <div className="relative hidden min-h-[300px] lg:block" aria-hidden>
-            <div
-              className="polaroid animate-drift absolute right-6 top-0 z-10 w-[145px] bg-kahf-fantasy"
-              style={{ "--tilt": "-5deg" } as React.CSSProperties}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/inspo/photo-booth.png" alt="" />
-              <p className="mt-2 text-center font-sans text-[10px] font-bold uppercase tracking-widest text-kahf-tobago">
-                you, elsewhere
-              </p>
-            </div>
-            <div
-              className="polaroid animate-drift absolute right-40 top-20 w-[115px] bg-kahf-vanilla"
-              style={{ "--tilt": "4deg", animationDelay: "1s" } as React.CSSProperties}
-            >
-              <div className="flex aspect-square items-center justify-center bg-kahf-sand">
-                <span className="font-arabic text-2xl text-kahf-tobago" lang="ar">
-                  حجاب
-                </span>
+                YOU COVERED.
+              </motion.h1>
+              <div className="relative -mt-2 sm:-mt-3">
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.12 }}
+                  className="headline-script block text-[clamp(2.9rem,7.4vw,5.2rem)] leading-[0.88] text-kahf-berkeley"
+                >
+                  the internet didn&apos;t.
+                </motion.span>
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.22 }}
+                  className="body-sans mt-3 max-w-sm text-sm leading-relaxed text-kahf-coffee/72 sm:text-base"
+                >
+                  Kahf finds your pre-hijab photos online and helps you take the next step.
+                </motion.p>
               </div>
             </div>
-            <div
-              className="absolute right-4 top-52 w-[90px] border-2 border-kahf-tobago bg-kahf-tobago p-3 text-kahf-fantasy"
-              style={{ transform: "rotate(2deg)" }}
-            >
-              <p className="font-arabic text-center text-xl leading-tight" lang="ar" dir="rtl">
-                خصوصية
-              </p>
-              <p className="mt-1 text-center font-sans text-[8px] uppercase tracking-widest">
-                privacy
-              </p>
+
+            <div className="relative hidden min-h-[390px] lg:block lg:w-full" aria-hidden>
+              <div className="relative w-full max-w-[28rem]">
+              {POLAROID_LAYOUT.map((p) => (
+                <ScrapbookPolaroid
+                  key={p.src}
+                  src={p.src}
+                  poses={p.poses}
+                  holdMs={p.holdMs}
+                  startDelayMs={p.startDelayMs}
+                  style={{
+                    right: p.right,
+                    top: p.top,
+                    width: p.width,
+                  }}
+                />
+              ))}
+              </div>
             </div>
           </div>
         </div>
+      </section>
 
-        <div className="mt-10 overflow-hidden border-y-2 border-kahf-tobago bg-kahf-vanilla py-3">
-          <div className="marquee-track flex w-max gap-14 whitespace-nowrap">
-            {[...FLOAT_LABELS, ...FLOAT_LABELS].map((label, i) => (
-              <span
-                key={`${label}-${i}`}
-                className={`float-label font-semibold ${
-                  /[\u0600-\u06FF]/.test(label) ? "font-arabic text-base" : "font-sans"
-                }`}
-                lang={/[\u0600-\u06FF]/.test(label) ? "ar" : undefined}
-                dir={/[\u0600-\u06FF]/.test(label) ? "rtl" : undefined}
-              >
-                {label} ·
-              </span>
-            ))}
-          </div>
+      <div className="marquee-fullbleed relative z-10 overflow-hidden border-y border-kahf-coffee/10 bg-kahf-cream py-3.5">
+        <div className="marquee-track flex gap-16 whitespace-nowrap px-4">
+          {[...FLOAT_LABELS, ...FLOAT_LABELS, ...FLOAT_LABELS].map((label, i) => (
+            <span key={`${label}-${i}`} className="float-label text-sm">
+              {label} ·
+            </span>
+          ))}
         </div>
       </div>
-    </section>
+    </>
   );
 }

@@ -1,11 +1,5 @@
 import type { Metadata } from "next";
-import {
-  DM_Sans,
-  Instrument_Serif,
-  Italianno,
-  Noto_Naskh_Arabic,
-  Playfair_Display,
-} from "next/font/google";
+import { DM_Sans, Instrument_Serif, Italianno, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
 const playfair = Playfair_Display({
@@ -34,17 +28,10 @@ const italianno = Italianno({
   display: "swap",
 });
 
-const notoArabic = Noto_Naskh_Arabic({
-  variable: "--font-arabic",
-  subsets: ["arabic"],
-  weight: ["400", "700"],
-  display: "swap",
-});
-
 export const metadata: Metadata = {
   title: "Kahf — Discover Your Digital Footprint",
   description:
-    "Find and manage pre-hijab photos of yourself online — private, verified, zero retention.",
+    "A gentle, private tool to help you find and manage your pre-transition digital footprint.",
 };
 
 export default function RootLayout({
@@ -55,7 +42,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${playfair.variable} ${instrument.variable} ${dmSans.variable} ${italianno.variable} ${notoArabic.variable} h-full`}
+      className={`${playfair.variable} ${instrument.variable} ${dmSans.variable} ${italianno.variable} h-full`}
     >
       <body className="kahf-grain kahf-paper min-h-full antialiased">{children}</body>
     </html>
